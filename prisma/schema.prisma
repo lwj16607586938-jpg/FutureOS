@@ -1,0 +1,244 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum MissionStatus {
+  CREATED
+  STARTED
+  COMPLETED
+}
+
+enum MissionStage {
+  CREATED
+  STARTED
+  LEARNING
+  THINKING
+  PREDICTION
+  REVIEW
+  COMPLETED
+}
+
+enum PredictionStatus {
+  PENDING
+  VERIFIED
+  FAILED
+}
+
+enum AbilityDimension {
+  OBSERVE
+  UNDERSTAND
+  CONNECT
+  REASON
+  PREDICT
+  UPDATE
+}
+
+enum KnowledgeStatus {
+  ACTIVE
+  DEPRECATED
+}
+
+enum KnowledgeProgressStatus {
+  UNKNOWN
+  LEARNING
+  LEARNED
+  MASTERED
+}
+
+enum RelationType {
+  CAUSE
+  DEPEND_ON
+  ENABLE
+  PART_OF
+  COMPARE
+  OPPOSITE
+  EXTENDS
+  PREREQUISITE
+}
+
+enum QuestionType {
+  EXPLAIN
+  REASON
+  CONNECT
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String?
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  missions  Mission[]
+  abilities Ability[]
+  progress  KnowledgeProgress[]
+  stats     DailyStatistics[]
+}
+
+model Mission {
+  id          String        @id @default(uuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  theme       String
+  status      MissionStatus @default(CREATED)
+  stage       MissionStage  @default(CREATED)
+  date        String                       // YYYY-MM-DD, daily uniqueness
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  learning    Learning?
+  questions   Question[]
+  prediction  Prediction?
+  review      Review?
+
+  // Burst mode (决策 2026-07-17): user may do MULTIPLE missions per day ("状态好时连做").
+  // Removed the previous @@unique([userId, date]) one-mission-per-day constraint; the
+  // service creates a fresh mission whenever the latest is COMPLETED. `date` is kept
+  // for daily grouping/analytics and indexed for fast lookups.
+  @@index([userId, date])
+  @@index([userId, createdAt])
+}
+
+model Learning {
+  id               String   @id @default(uuid())
+  missionId        String   @unique
+  mission          Mission  @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  title            String
+  content          String   // Markdown
+  estimatedMinutes Int      @default(8)
+  order            Int      @default(0)
+}
+
+model Question {
+  id        String      @id @default(uuid())
+  missionId String
+  mission   Mission     @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  type      QuestionType
+  content   String
+  answer    String?
+  order     Int
+  createdAt DateTime    @default(now())
+
+  @@unique([missionId, order])
+  @@index([missionId])
+}
+
+model Prediction {
+  id         String          @id @default(uuid())
+  missionId  String          @unique
+  mission    Mission         @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  content    String
+  confidence Int             // 0-100
+  targetDate DateTime
+  tag        String?
+  status     PredictionStatus @default(PENDING)
+  verifiedAt DateTime?
+  result     String?
+  createdAt  DateTime        @default(now())
+
+  @@index([status])
+  @@index([targetDate])
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  missionId String   @unique
+  mission   Mission  @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  summary   String
+  strength  String   // JSON array text (doc 11 §10 strength[])
+  weakness  String   // JSON array text (doc 11 §10 weakness[])
+  suggestion String  // JSON array text (doc 11 §10 suggestion[])
+  createdAt DateTime @default(now())
+}
+
+model Ability {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  observe   Int      @default(50)
+  understand Int     @default(50)
+  connect   Int      @default(50)
+  reason    Int      @default(50)
+  predict   Int      @default(50)
+  update    Int      @default(50)
+  updatedAt DateTime @updatedAt
+
+  history   AbilityHistory[]
+
+  @@index([userId])
+}
+
+model AbilityHistory {
+  id        String         @id @default(uuid())
+  abilityId String
+  ability   Ability        @relation(fields: [abilityId], references: [id], onDelete: Cascade)
+  dimension AbilityDimension
+  before    Int
+  after     Int
+  reason    String?
+  missionId String?
+  createdAt DateTime       @default(now())
+
+  @@index([abilityId])
+}
+
+model KnowledgeNode {
+  id          String          @id @default(uuid())
+  title       String
+  slug        String          @unique
+  description String          // Markdown, Learning content source
+  category    String?
+  difficulty  Int             // 1-5
+  status      KnowledgeStatus @default(ACTIVE)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  sourceEdges KnowledgeEdge[] @relation("EdgeSource")
+  targetEdges KnowledgeEdge[] @relation("EdgeTarget")
+  progress    KnowledgeProgress[]
+
+  @@index([slug])
+}
+
+model KnowledgeEdge {
+  id           String      @id @default(uuid())
+  sourceNodeId String
+  source       KnowledgeNode @relation("EdgeSource", fields: [sourceNodeId], references: [id], onDelete: Cascade)
+  targetNodeId String
+  target       KnowledgeNode @relation("EdgeTarget", fields: [targetNodeId], references: [id], onDelete: Cascade)
+  relation     RelationType
+  createdAt    DateTime    @default(now())
+
+  @@unique([sourceNodeId, targetNodeId, relation])
+  @@index([sourceNodeId])
+}
+
+model KnowledgeProgress {
+  id                String                @id @default(uuid())
+  userId            String
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  knowledgeNodeId   String
+  node              KnowledgeNode         @relation(fields: [knowledgeNodeId], references: [id], onDelete: Cascade)
+  status            KnowledgeProgressStatus @default(UNKNOWN)
+  completedMissionId String?
+  updatedAt         DateTime              @updatedAt
+
+  @@unique([userId, knowledgeNodeId])
+}
+
+model DailyStatistics {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  missionCount    Int      @default(0)
+  predictionCount Int      @default(0)
+  knowledgeCount  Int      @default(0)
+  currentStreak   Int      @default(0)
+  longestStreak   Int      @default(0)
+  updatedAt       DateTime @updatedAt
+}

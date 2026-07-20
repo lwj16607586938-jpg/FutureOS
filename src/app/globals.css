@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+/*
+  FutureOS Design Tokens (doc 15)
+  - Semantic, theme-decoupled naming (Light Theme only for V1; Dark reserved).
+  - Color carries meaning, not decoration.
+*/
+:root {
+  --background: 0 0% 100%;
+  --foreground: 222 28% 14%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 222 28% 14%;
+
+  --primary: 221 83% 53%; /* Future Blue */
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 220 20% 96%;
+  --secondary-foreground: 222 28% 22%;
+
+  --muted: 220 20% 96%;
+  --muted-foreground: 220 12% 42%;
+
+  --accent: 220 24% 94%;
+  --accent-foreground: 222 28% 22%;
+
+  --success: 142 71% 45%;
+  --success-foreground: 0 0% 100%;
+
+  --warning: 25 95% 53%;
+  --warning-foreground: 0 0% 100%;
+
+  --error: 0 72% 51%;
+  --error-foreground: 0 0% 100%;
+
+  --border: 220 16% 90%;
+  --input: 220 16% 90%;
+  --ring: 221 83% 53%;
+
+  --radius: 0.625rem;
+}
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-error: hsl(var(--error));
+  --color-error-foreground: hsl(var(--error-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Reading column (doc 15 §5: 760px) & page container (1200px) */
+.reading-col {
+  max-width: 760px;
+}
+.page-container {
+  max-width: 1200px;
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+}
+
+/* Calm fade-in for cards (doc 15 §14) */
+@keyframes fos-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fos-fade-in {
+  animation: fos-fade-in 200ms ease-out;
+}
