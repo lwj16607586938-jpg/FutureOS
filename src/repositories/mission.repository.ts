@@ -113,4 +113,15 @@ export const missionRepository = {
     });
     return rows.map((r) => ({ date: r.date, status: r.status }));
   },
+
+  // All missions for a user (oldest→newest by date), with full relations.
+  // Used by the archive view and JSON export — surfaces EVERY mission (all tiers/
+  // nodes), not just the latest, so nothing the user wrote is unreachable.
+  async getAllForUser(userId: string): Promise<MissionWithRelations[]> {
+    return prisma.mission.findMany({
+      where: { userId },
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+      include,
+    });
+  },
 };

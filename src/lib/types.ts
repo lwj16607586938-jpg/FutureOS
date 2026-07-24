@@ -161,3 +161,51 @@ export interface GrowthView {
   longestStreak: number;
   trend: TrendPoint[];
 }
+
+// ---- 用户内容完整保留（档案 / 导出 / 自动备份） ----
+export interface ArchiveQuestion {
+  order: number;
+  type: "EXPLAIN" | "REASON" | "CONNECT";
+  question: string;
+  answer: string | null;
+}
+
+export interface ArchiveMission {
+  missionId: string;
+  theme: string;
+  nodeTitle: string | null;
+  tier: number; // 1-based tier within the node's module
+  tierCount: number; // total tiers of the node
+  date: string; // YYYY-MM-DD
+  status: "CREATED" | "STARTED" | "COMPLETED";
+  stage: string;
+  completedAt: string | null;
+  learning: { title: string; content: string } | null;
+  questions: ArchiveQuestion[]; // 回答 / 思考（3 道思考题）
+  prediction: {
+    content: string;
+    confidence: number;
+    targetDate: string;
+    tag: string | null;
+    status: "PENDING" | "VERIFIED" | "FAILED";
+    result: string | null;
+  } | null;
+  review: {
+    summary: string;
+    strength: string[];
+    weakness: string[];
+    suggestion: string[];
+    questionReviews: QuestionReviewItem[]; // 逐题：判定/错因/参考答案/讲解
+  } | null;
+}
+
+export interface ArchiveResult {
+  missions: ArchiveMission[];
+}
+
+export interface MissionExport {
+  exportedAt: string;
+  app: "FutureOS";
+  version: string;
+  missions: ArchiveMission[];
+}

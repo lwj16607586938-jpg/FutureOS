@@ -9,6 +9,7 @@ const NAV = [
   { href: "/world", label: "世界", en: "World" },
   { href: "/predictions", label: "预测", en: "Prediction" },
   { href: "/growth", label: "成长", en: "Growth" },
+  { href: "/archive", label: "档案", en: "Archive" },
 ];
 
 export function SiteNav() {

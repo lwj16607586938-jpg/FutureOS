@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# user-generated learning data (precious, local-only — never commit)
+/data/
+/backups/
+
+# local SQLite database (contains the user's learning records — keep out of git)
+prisma/*.db
+*.sqlite
+*.sqlite3

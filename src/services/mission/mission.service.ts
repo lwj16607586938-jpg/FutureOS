@@ -8,6 +8,7 @@ import { conceptService } from "@/services/concept/concept.service";
 import { getAIProvider, buildContext } from "@/services/ai";
 import { parseMission, parseReview } from "@/services/ai/parse";
 import { toMissionView } from "@/lib/mappers";
+import { appendLearningEntry } from "@/lib/backup";
 import {
   evidenceToDeltas,
   toAbilityScores,
@@ -302,6 +303,11 @@ export const missionService = {
 
     const full = await missionRepository.findById(completed);
     if (!full) throw new NotFoundError("MISSION_NOT_FOUND", "Mission 不存在");
+
+    // 用户内容完整保留：每次完成把全量快照追加进 append-only 成长记录。
+    // 即便数据库被重置，learning-log.jsonl 仍保留其全部回答/思考/预测。
+    await appendLearningEntry(userId, completed);
+
     return toMissionView(full);
   },
 

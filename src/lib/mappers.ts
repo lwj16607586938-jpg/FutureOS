@@ -6,6 +6,8 @@ import type {
   AbilityScores,
   QuestionView,
   QuestionReviewItem,
+  ArchiveMission,
+  ArchiveQuestion,
 } from "./types";
 
 function parseList(json: string | null): string[] {
@@ -116,5 +118,59 @@ export function toMissionView(
     prediction: m.prediction ? toPredictionView(m.prediction) : null,
     review: toReviewView(m.review ?? null),
     questionReviews: parseQuestionReviews(m.review),
+  };
+}
+
+// Full snapshot of a mission for the user's archive / export / append-only backup.
+// Preserves EVERYTHING the user produced: 阅读材料的原文、每题回答（思考）、预测、复盘（含逐题讲解）。
+export function toArchiveMission(
+  m: Mission & {
+    learning?: { title: string; content: string; estimatedMinutes: number } | null;
+    questions?: { order: number; type: string; content: string; answer: string | null }[];
+    prediction?: Prediction | null;
+    review?: Review | null;
+    node?: { id: string; title?: string; difficulty: number } | null;
+  }
+): ArchiveMission {
+  const tierCount = m.node ? Math.min(Math.max(m.node.difficulty, 1), 5) : m.tier ?? 1;
+  const nodeTitle = (m.node as { title?: string } | null)?.title ?? m.theme;
+  return {
+    missionId: m.id,
+    theme: m.theme,
+    nodeTitle,
+    tier: m.tier ?? 1,
+    tierCount,
+    date: m.date,
+    status: m.status,
+    stage: m.stage,
+    completedAt: m.completedAt ? m.completedAt.toISOString() : null,
+    learning: m.learning ? { title: m.learning.title, content: m.learning.content } : null,
+    questions: (m.questions ?? []).map(
+      (q): ArchiveQuestion => ({
+        order: q.order,
+        type: q.type as ArchiveQuestion["type"],
+        question: q.content,
+        answer: q.answer,
+      })
+    ),
+    prediction: m.prediction
+      ? {
+          content: m.prediction.content,
+          confidence: m.prediction.confidence,
+          targetDate: m.prediction.targetDate.toISOString(),
+          tag: m.prediction.tag,
+          status: m.prediction.status,
+          result: m.prediction.result,
+        }
+      : null,
+    review: m.review
+      ? {
+          summary: m.review.summary,
+          strength: parseList(m.review.strength),
+          weakness: parseList(m.review.weakness),
+          suggestion: parseList(m.review.suggestion),
+          questionReviews: parseQuestionReviews(m.review),
+        }
+      : null,
   };
 }

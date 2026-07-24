@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiSend, streamPost } from "@/lib/fetcher";
 import { Button, Card, CardTitle, Badge, Textarea, Input, Skeleton, EmptyState } from "@/components/ui";
@@ -304,10 +305,13 @@ function CompletedView({ mission, onAgain }: { mission: MissionView; onAgain?: (
         <div className="flex items-center gap-2">
           <Badge tone="success">已完成</Badge>
           <span className="text-sm text-muted-foreground">{mission.date}</span>
+          <Link href="/archive" className="ml-auto text-xs font-medium text-primary hover:underline">
+            查看我的全部档案 →
+          </Link>
         </div>
         <CardTitle className="mt-2">本场主题：{mission.theme}</CardTitle>
         <p className="mt-1 text-sm text-muted-foreground">
-          一次完整的认知训练已记录。能力模型与世界模型已更新，可在「成长」查看。
+          一次完整的认知训练已记录。能力模型与世界模型已更新，可在「成长」查看；你的全部回答/思考/预测已归档于「档案」。
         </p>
       </Card>
 
