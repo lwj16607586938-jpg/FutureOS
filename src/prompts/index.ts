@@ -28,7 +28,13 @@ function historyLine(ctx: AIContext): string {
 export function buildMissionPrompt(ctx: AIContext): string {
   return [
     `【System】${SYSTEM_INSTRUCTION}`,
-    `【Task】为上述概念生成一次每日 Mission。要求：主题唯一（即该概念标题）；Learning 为一段 5-10 分钟可读的 Markdown 资料（可直接使用概念资料，必要时补充一句引导）；Thinking 固定 3 题，依次为 EXPLAIN（考理解）、REASON（考推理）、CONNECT（考连接）。`,
+    `【Task】为上述概念生成一次每日 Mission。要求：主题唯一（即该概念标题）；Learning 为一段 5-10 分钟可读资料；Thinking 固定 3 题，依次为 EXPLAIN（考理解）、REASON（考推理）、CONNECT（考连接）。`,
+    `【排版要求 · 重点】learning.content 必须是排版清晰的 Markdown 正文（直接放在 JSON 字符串里，不要用 \`\`\` 代码围栏）：`,
+    `  - 用 2-4 个 \`## 小标题\` 划分层次（如「定义」「为什么重要」「关键机制」「与你的关联」）；`,
+    `  - 核心概念、术语、关键数字用 \`**加粗**\` 标注；`,
+    `  - 并列要点用 \`- \` 无序列表；`,
+    `  - 段落之间保留空行，行距清晰，避免大段密排文字；`,
+    `  - 不出现 \`\`\` 围栏、不出现「详见上文」之类的回指。`,
     `【Mission】${knowledgeLine(ctx)}`,
     `【Ability】${abilityLine(ctx)}`,
     `【History】${historyLine(ctx)}`,
@@ -39,17 +45,22 @@ export function buildMissionPrompt(ctx: AIContext): string {
 export function buildReviewPrompt(ctx: AIContext): string {
   const m = ctx.mission;
   const answers = (m?.answers ?? [])
-    .map((a, i) => `Q${i + 1}[${a.type}] ${a.question}\n答案：${a.answer || "（未作答）"}`)
+    .map((a, i) => `Q${i + 1}[${a.type}] ${a.question}\n用户答案：${a.answer || "（未作答）"}`)
     .join("\n");
   const pred = m?.prediction
     ? `用户预测：${m.prediction.content}（置信度 ${m.prediction.confidence}%，目标日期 ${m.prediction.targetDate}）`
     : "用户未提交预测。";
   return [
     `【System】${SYSTEM_INSTRUCTION}`,
-    `【Task】基于本次 Mission 的用户作答与预测，生成复盘 Review。summary 一句话总评；strength/weakness/suggestion 各 2-3 条字符串数组（中文、可操作）。`,
+    `【Task】基于本次 Mission 的用户作答，生成复盘 Review。summary 一句总评；strength/weakness/suggestion 各 2-3 条（中文、可操作）。`,
+    `【逐题讲评 · 硬性要求】必须输出 questionReviews 数组，共 ${Math.max((m?.answers ?? []).length, 3)} 项，与题目顺序一一对应：`,
+    `  - verdict：correct（答到要点）/ partial（方向对但不完整或有小错）/ wrong（明显错误或空白）；`,
+    `  - diagnosis（错在哪里）：若 verdict≠correct，必须直接引用用户答案中的具体错误原话并指出错处；严禁使用「答得不错」「有待加强」等模糊措辞；若 correct 则为空字符串；`,
+    `  - correctAnswer（参考答案）：给出该问题的标准/理想答案要点，必须具体；`,
+    `  - explanation（讲解）：直接给出完整解析，自成一体、可直接理解；严禁出现「回看材料」「见上文」「结合阅读」「请参考前面」等回指，也不得要求用户自行查阅。`,
     `【Mission】主题「${m?.theme ?? ctx.concept.title}」。\n${answers}\n${pred}`,
     `【Ability】${abilityLine(ctx)}`,
-    `【Output】严格返回 JSON，格式：{"summary":"","strength":[],"weakness":[],"suggestion":[]}`,
+    `【Output】严格返回 JSON，格式：{"summary":"","strength":[],"weakness":[],"suggestion":[],"questionReviews":[{"order":1,"type":"EXPLAIN","question":"","userAnswer":"","verdict":"correct","diagnosis":"","correctAnswer":"","explanation":""}]}`,
   ].join("\n\n");
 }
 

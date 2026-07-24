@@ -3,8 +3,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiSend, streamPost } from "@/lib/fetcher";
 import { Button, Card, CardTitle, Badge, Textarea, Input, Skeleton, EmptyState } from "@/components/ui";
-import type { MissionView, QuestionView } from "@/lib/types";
+import type { MissionView, QuestionView, QuestionReviewItem } from "@/lib/types";
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const STAGE_LABEL: Record<string, string> = {
   CREATED: "未开始",
@@ -120,8 +122,9 @@ export default function TodayPage() {
             <CardTitle>{m.learning.title}</CardTitle>
             <Badge tone="primary">约 {m.learning.estimatedMinutes} 分钟</Badge>
           </div>
-          <article className="mt-4 whitespace-pre-wrap text-[15px] leading-7 text-foreground">
-            {m.learning.content}
+          {/* req1: render learning material as structured Markdown */}
+          <article className="prose-reading mt-4">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.learning.content}</ReactMarkdown>
           </article>
           <Button className="mt-5" size="lg" onClick={() => thinking.mutate(m.missionId)} disabled={thinking.isPending}>
             读完，开始思考 →
@@ -170,8 +173,15 @@ function ThinkingFlow({
   const qs: QuestionView[] = mission.questions ?? [];
   const answeredCount = qs.filter((q) => q.answer && q.answer.trim()).length;
   const activeIndex = Math.min(qs.findIndex((q) => !q.answer || !q.answer.trim()), qs.length - 1);
-  const phase: "questions" | "predict" =
-    answeredCount >= 3 || mission.stage === "PREDICTION" || mission.stage === "REVIEW" ? "predict" : "questions";
+  // req2: prediction is only required at the final tier; earlier tiers go
+  // straight to "finish" (complete without prediction).
+  const showPrediction = (mission.tier ?? 1) >= (mission.tierCount ?? 1);
+  const phase: "questions" | "predict" | "finish" =
+    answeredCount >= 3 || mission.stage === "PREDICTION" || mission.stage === "REVIEW"
+      ? showPrediction
+        ? "predict"
+        : "finish"
+      : "questions";
 
   const [draft, setDraft] = useState("");
   const [pred, setPred] = useState("");
@@ -186,7 +196,8 @@ function ThinkingFlow({
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Badge tone="primary">{STAGE_LABEL[mission.stage]}</Badge>
         <span>
-          进度 {answeredCount}/{qs.length} 题{mission.prediction ? " · 已预测" : ""}
+          进度 {answeredCount}/{qs.length} 题 · L{mission.tier ?? 1}/{mission.tierCount ?? 1}
+          {mission.prediction ? " · 已预测" : ""}
         </span>
       </div>
 
@@ -264,6 +275,24 @@ function ThinkingFlow({
           )}
         </Card>
       )}
+
+      {phase === "finish" && (
+        <Card className="fos-fade-in">
+          <CardTitle>完成本场 Mission</CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {showPrediction
+              ? "已提交预测，可以生成复盘并完成。"
+              : `本级别（L${mission.tier ?? 1}）为基础层级，无需预测。完成后系统会继续带你吃透「${mission.theme}」的下一层级（L${(mission.tier ?? 1) + 1}）。`}
+          </p>
+          {completing ? (
+            <ThoughtStream text={streamText ?? ""} label="AI 正在生成复盘…" />
+          ) : (
+            <div className="mt-4 flex gap-2">
+              <Button onClick={onComplete}>完成 Mission</Button>
+            </div>
+          )}
+        </Card>
+      )}
     </div>
   );
 }
@@ -290,6 +319,20 @@ function CompletedView({ mission, onAgain }: { mission: MissionView; onAgain?: (
             <ReviewCol title="优势" items={mission.review.strength} tone="success" />
             <ReviewCol title="待加强" items={mission.review.weakness} tone="warning" />
             <ReviewCol title="建议" items={mission.review.suggestion} tone="primary" />
+          </div>
+        </Card>
+      )}
+
+      {mission.questionReviews && mission.questionReviews.length > 0 && (
+        <Card>
+          <CardTitle>逐题讲评</CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            每道题都给出你的答案、判定、参考答案与完整讲解（无需回看材料）。
+          </p>
+          <div className="mt-3 space-y-4">
+            {mission.questionReviews.map((qr) => (
+              <QuestionReviewCard key={qr.order} item={qr} />
+            ))}
           </div>
         </Card>
       )}
@@ -334,6 +377,48 @@ function ReviewCol({ title, items, tone }: { title: string; items: string[]; ton
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function QuestionReviewCard({ item }: { item: QuestionReviewItem }) {
+  const verdictMeta = {
+    correct: { label: "答对", tone: "success" as const },
+    partial: { label: "部分正确", tone: "warning" as const },
+    wrong: { label: "答错", tone: "error" as const },
+  }[item.verdict];
+  return (
+    <div className="rounded-lg border border-border p-3">
+      <div className="flex items-center gap-2">
+        <Badge tone="neutral">{item.type}</Badge>
+        <span className="text-sm font-medium text-foreground">第 {item.order} 题</span>
+        <Badge tone={verdictMeta.tone}>{verdictMeta.label}</Badge>
+      </div>
+      <p className="mt-2 text-sm leading-7 text-foreground">{item.question}</p>
+
+      <div className="mt-2 text-xs text-muted-foreground">
+        你的答案：
+        <span className="text-foreground">
+          {item.userAnswer && item.userAnswer.trim() ? item.userAnswer : "（未作答）"}
+        </span>
+      </div>
+
+      {item.verdict !== "correct" && item.diagnosis && (
+        <div className="mt-2 rounded-md bg-error/10 p-2 text-sm leading-6 text-error">
+          <span className="font-semibold">错在哪里：</span>
+          {item.diagnosis}
+        </div>
+      )}
+
+      <div className="mt-2 rounded-md bg-success/10 p-2 text-sm leading-6 text-success">
+        <span className="font-semibold">参考答案：</span>
+        {item.correctAnswer}
+      </div>
+
+      <div className="mt-2 text-sm leading-7 text-foreground">
+        <span className="font-semibold text-muted-foreground">讲解：</span>
+        {item.explanation}
+      </div>
     </div>
   );
 }

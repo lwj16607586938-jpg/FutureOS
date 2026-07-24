@@ -19,6 +19,21 @@ export interface ReviewAIOutput {
   strength: string[];
   weakness: string[];
   suggestion: string[];
+  // Per-question review (req3/req4): explicit verdict, pointed error location,
+  // reference answer, and a self-contained explanation.
+  questionReviews?: QuestionReviewItem[];
+}
+
+// Per-question coaching review (req3/req4).
+export interface QuestionReviewItem {
+  order: number;
+  type: "EXPLAIN" | "REASON" | "CONNECT";
+  question: string;
+  userAnswer: string | null;
+  verdict: "correct" | "partial" | "wrong";
+  diagnosis: string; // 错在哪里 — quotes the user's specific error; empty when correct
+  correctAnswer: string; // 参考答案 — the reference/ideal answer
+  explanation: string; // 讲解 — complete analysis, self-contained, no "回看材料"
 }
 
 // Prediction assistance (doc 11 §7 PREDICTION_ASSISTANCE) — AI helps, never writes the prediction.
@@ -69,10 +84,13 @@ export interface MissionView {
   date: string;
   startedAt: string | null;
   completedAt: string | null;
+  tier: number; // 1-based tier within this node's module (L1..Lk)
+  tierCount: number; // total tiers of the node (== clamp(difficulty,1,5)); prediction required only at final tier (req2)
   learning: LearningView | null;
   questions: QuestionView[];
   prediction: PredictionView | null;
   review: ReviewView | null;
+  questionReviews: QuestionReviewItem[]; // per-question coaching (req3/req4)
 }
 
 export interface AbilityScores {

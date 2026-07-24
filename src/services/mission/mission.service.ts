@@ -62,7 +62,17 @@ export const missionService = {
     });
     const ai = preAI ?? (await getAIProvider().generateMission(ctx));
     const questions = ai.questions.map((q, i) => ({ type: q.type, content: q.content, order: i }));
-    const updated = await missionRepository.setStarted(m.id, ai.theme, ai.learning, questions);
+    // req2/req5/req6: assign the 1-based tier within this node's module so that
+    // prediction is gated to the final tier and the same node is studied deeply
+    // before moving on. Tier = (completed missions of this node) + 1.
+    const doneForNode = await prisma.mission.count({
+      where: { userId, theme: node.title, status: "COMPLETED" },
+    });
+    const tier = doneForNode + 1;
+    const updated = await missionRepository.setStarted(m.id, ai.theme, ai.learning, questions, {
+      id: node.id,
+      tier,
+    });
     return toMissionView(updated);
   },
 
@@ -171,7 +181,9 @@ export const missionService = {
     if (!m.learning) throw new BusinessError("VALIDATION_ERROR", "缺少 Learning，无法完成");
     const answered = (m.questions ?? []).filter((q) => q.answer && q.answer.trim());
     if (answered.length < 3) throw new BusinessError("VALIDATION_ERROR", "需先答完 3 道思考题");
-    if (!m.prediction) throw new BusinessError("VALIDATION_ERROR", "需先提交预测");
+    // req2: 预测只在「最终一级」要求，基础级别（L1..Lk-1）不要求预测。
+    const isFinalTier = finalTierOf(m);
+    if (!m.prediction && isFinalTier) throw new BusinessError("VALIDATION_ERROR", "需先提交预测");
 
     // AI Review (Context Engine) — never blocks completion; falls back to mock.
     const concept = (await conceptService.getConceptByTitle(m.theme)) ?? {
@@ -208,7 +220,7 @@ export const missionService = {
 
     const answeredDims = answered.map((q) => QUESTION_DIMENSION[q.type as keyof typeof QUESTION_DIMENSION]) as AbilityDimensionKey[];
     const streakBefore = await recomputeStreak(userId);
-    const deltas = evidenceToDeltas({ answeredDims, hasPrediction: true, consecutiveGood: streakBefore >= 2 });
+    const deltas = evidenceToDeltas({ answeredDims, hasPrediction: !!m.prediction, consecutiveGood: streakBefore >= 2 });
 
     const completed = await prisma.$transaction(async (tx) => {
       // 1) Ability update + history
@@ -247,12 +259,14 @@ export const missionService = {
           strength: JSON.stringify(review.strength),
           weakness: JSON.stringify(review.weakness),
           suggestion: JSON.stringify(review.suggestion),
+          questionReviews: JSON.stringify(review.questionReviews ?? []),
         },
         update: {
           summary: review.summary,
           strength: JSON.stringify(review.strength),
           weakness: JSON.stringify(review.weakness),
           suggestion: JSON.stringify(review.suggestion),
+          questionReviews: JSON.stringify(review.questionReviews ?? []),
         },
       });
       // 3) Mark knowledge learned
@@ -304,7 +318,9 @@ export const missionService = {
     if (!m.learning) throw new BusinessError("VALIDATION_ERROR", "缺少 Learning，无法完成");
     const answered = (m.questions ?? []).filter((q) => q.answer && q.answer.trim());
     if (answered.length < 3) throw new BusinessError("VALIDATION_ERROR", "需先答完 3 道思考题");
-    if (!m.prediction) throw new BusinessError("VALIDATION_ERROR", "需先提交预测");
+    // req2: 预测只在「最终一级」要求，基础级别（L1..Lk-1）不要求预测。
+    const isFinalTier = finalTierOf(m);
+    if (!m.prediction && isFinalTier) throw new BusinessError("VALIDATION_ERROR", "需先提交预测");
 
     const concept = (await conceptService.getConceptByTitle(m.theme)) ?? {
       title: m.theme,
@@ -346,7 +362,6 @@ export const missionService = {
     return this.completeMission(userId, missionId, review);
   },
 
-  // --- helpers ---
   async requireEditable(userId: string, missionId: string) {
     const m = await missionRepository.findById(missionId);
     if (!m || m.userId !== userId) throw new NotFoundError("MISSION_NOT_FOUND", "Mission 不存在");
@@ -354,6 +369,14 @@ export const missionService = {
     return m;
   },
 };
+
+// req2: a mission is the "final tier" of its module when its 1-based tier
+// reaches the node's tier count (clamp(difficulty,1,5)). Prediction is only
+// required at the final tier; basic tiers (L1..Lk-1) skip it.
+function finalTierOf(m: { tier?: number | null; node?: { difficulty: number } | null }): boolean {
+  const tierCount = m.node ? Math.min(Math.max(m.node.difficulty, 1), 5) : m.tier ?? 1;
+  return (m.tier ?? 1) >= tierCount;
+}
 
 function toPredictionViewLocal(p: import("@prisma/client").Prediction): PredictionView {
   return {

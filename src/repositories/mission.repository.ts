@@ -6,6 +6,7 @@ const include = {
   questions: { orderBy: { order: "asc" } },
   prediction: true,
   review: true,
+  node: true,
 } as const;
 
 export type MissionWithRelations = Mission & {
@@ -13,6 +14,7 @@ export type MissionWithRelations = Mission & {
   questions: { order: number; type: string; content: string; answer: string | null }[];
   prediction: import("@prisma/client").Prediction | null;
   review: import("@prisma/client").Review | null;
+  node: { id: string; difficulty: number } | null;
 };
 
 export const missionRepository = {
@@ -43,12 +45,20 @@ export const missionRepository = {
     id: string,
     theme: string,
     learning: { title: string; content: string; estimatedMinutes: number },
-    questions: { type: string; content: string; order: number }[]
+    questions: { type: string; content: string; order: number }[],
+    node?: { id: string; tier: number } | null
   ): Promise<MissionWithRelations> {
     return prisma.$transaction(async (tx) => {
       const m = await tx.mission.update({
         where: { id },
-        data: { theme, status: "STARTED", stage: "LEARNING", startedAt: new Date() },
+        data: {
+          theme,
+          status: "STARTED",
+          stage: "LEARNING",
+          startedAt: new Date(),
+          nodeId: node?.id ?? null,
+          tier: node?.tier ?? 1,
+        },
         include,
       });
       await tx.learning.upsert({

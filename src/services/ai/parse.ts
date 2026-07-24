@@ -2,6 +2,7 @@ import type {
   MissionAIOutput,
   ReviewAIOutput,
   PredictionAssistanceOutput,
+  QuestionReviewItem,
 } from "@/lib/types";
 import type { VerificationOutput } from "./types";
 
@@ -73,11 +74,24 @@ export function parseMission(raw: string): MissionAIOutput {
 
 export function parseReview(raw: string): ReviewAIOutput {
   const o = JSON.parse(firstJson(raw));
+  const questionReviews: QuestionReviewItem[] = Array.isArray(o.questionReviews)
+    ? o.questionReviews.slice(0, 3).map((q: any) => ({
+        order: Number(q?.order) || 0,
+        type: (["EXPLAIN", "REASON", "CONNECT"].includes(q?.type) ? q.type : "EXPLAIN") as QuestionReviewItem["type"],
+        question: String(q?.question ?? ""),
+        userAnswer: q?.userAnswer != null ? String(q.userAnswer) : null,
+        verdict: (["correct", "partial", "wrong"].includes(q?.verdict) ? q.verdict : "wrong") as QuestionReviewItem["verdict"],
+        diagnosis: String(q?.diagnosis ?? ""),
+        correctAnswer: String(q?.correctAnswer ?? ""),
+        explanation: String(q?.explanation ?? ""),
+      }))
+    : [];
   return {
     summary: String(o.summary ?? ""),
     strength: asStringArray(o.strength),
     weakness: asStringArray(o.weakness),
     suggestion: asStringArray(o.suggestion),
+    questionReviews,
   };
 }
 

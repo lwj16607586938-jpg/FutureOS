@@ -8,6 +8,7 @@ import type {
   MissionAIOutput,
   ReviewAIOutput,
   PredictionAssistanceOutput,
+  QuestionReviewItem,
 } from "@/lib/types";
 
 // Deterministic, offline provider. No network, no key. Returns spec-compliant JSON.
@@ -19,11 +20,27 @@ export class MockProvider implements AIProvider {
     const { concept } = ctx;
     const title = concept.title.trim();
     const estimatedMinutes = 5 + Math.min(Math.max(concept.difficulty, 1), 5);
+    // req1: well-structured Markdown so the reading material is clear (## headings,
+    // **bold** key terms, - lists, paragraph spacing).
+    const content = [
+      `## 定义`,
+      `**${title}**：${concept.description}`,
+      ``,
+      `## 为什么重要`,
+      `- 它是理解整个产业链供需与景气度的支点。`,
+      `- 需求与供给的变化会沿概念图谱向下游传导，影响价格与库存周期。`,
+      ``,
+      `## 关键要点`,
+      `- **需求**：市场愿意且能够购买的数量，决定产业景气度的方向。`,
+      `- **供给**：产能、技术与资源的约束，决定弹性与瓶颈。`,
+      `- **节奏**：供需错配制造周期，理解节奏才能做出可验证的判断。`,
+      ``,
+    ].join("\n");
     return {
       theme: title,
       learning: {
         title,
-        content: concept.description,
+        content,
         estimatedMinutes,
       },
       questions: this.buildQuestions(title),
@@ -51,7 +68,7 @@ export class MockProvider implements AIProvider {
     ];
 
     const suggestion: string[] = [
-      `明天建议学习与「${theme}」相邻的下一概念，沿概念图谱向前推进。`,
+      `明天建议继续深耕「${theme}」相关的下一层级内容，吃透单个知识点再推进。`,
       `回顾你今天写下的预测，明确它什么时候、以什么标准可被验证。`,
       `若某道题答得吃力，说明对应能力偏weak，可让系统优先安排相关主题。`,
     ];
@@ -60,7 +77,37 @@ export class MockProvider implements AIProvider {
       `今天你围绕「${theme}」完成了一次完整认知训练：阅读核心资料、回答理解/推理/连接三类问题` +
       `${hasPrediction ? "、并提出一项预测" : ""}。整体聚焦且向前推进，持续积累将完善你的世界模型。`;
 
-    return { summary, strength, weakness, suggestion };
+    // req3/req4: per-question coaching — explicit verdict, pointed error location,
+    // reference answer, and a self-contained explanation (no "回看材料").
+    const questionReviews = (ctx.mission?.answers ?? []).map((a, i) => {
+      const userAnswer = a.answer && a.answer.trim() ? a.answer.trim() : null;
+      const verdict: QuestionReviewItem["verdict"] = !userAnswer
+        ? "wrong"
+        : userAnswer.length >= 12
+          ? "correct"
+          : "partial";
+      const correctAnswer = `围绕「${theme}」，应说明它的定义、它在产业链中的位置，以及它如何影响供需与景气。`;
+      const diagnosis = !userAnswer
+        ? `你未作答（或回答为空），缺少对「${a.question}」的关键推理。`
+        : verdict === "partial"
+          ? `你的回答方向对，但偏短、缺少「因为…所以…」的推理链条，未把「${theme}」与具体现象联系起来。`
+          : "";
+      const explanation =
+        `**解析**：「${theme}」的核心在于理解其定义与传导机制。${a.question} 要求你把它与具体现象联系起来——` +
+        `先给出定义，再说明它如何改变需求、供给或价格，最后举例验证。参考答案：${correctAnswer}`;
+      return {
+        order: i + 1,
+        type: (["EXPLAIN", "REASON", "CONNECT"].includes(a.type) ? a.type : "EXPLAIN") as QuestionReviewItem["type"],
+        question: a.question,
+        userAnswer,
+        verdict,
+        diagnosis,
+        correctAnswer,
+        explanation,
+      };
+    });
+
+    return { summary, strength, weakness, suggestion, questionReviews };
   }
 
   async generateSuggestion(ctx: AIContext): Promise<string[]> {
@@ -86,25 +133,19 @@ export class MockProvider implements AIProvider {
     return { historyNotes, riskHints };
   }
 
-  // Streaming: emit the deterministic text in small chunks so the UI still
-  // shows a live typewriter even fully offline.
+  // Streaming: emit the SAME structured JSON the service expects to parse
+  // (parseMission/parseReview call JSON.parse on the accumulated text). This
+  // keeps the mock provider spec-compliant with the streaming contract while
+  // still yielding in chunks for the live typewriter. The UI swaps to the
+  // clean parsed content once the stream completes.
   async *streamGenerateMission(ctx: AIContext): AsyncIterable<string> {
     const m = await this.generateMission(ctx);
-    const text =
-      `主题：${m.theme}\n\n` +
-      `${m.learning.content}\n\n` +
-      m.questions.map((q, i) => `Q${i + 1}[${q.type}] ${q.content}`).join("\n");
-    yield* this.chunk(text, 24);
+    yield* this.chunk(JSON.stringify(m), 24);
   }
 
   async *streamGenerateReview(ctx: AIContext): AsyncIterable<string> {
     const r = await this.generateReview(ctx);
-    const text =
-      `${r.summary}\n\n` +
-      `优势：\n${r.strength.map((s) => `- ${s}`).join("\n")}\n\n` +
-      `待加强：\n${r.weakness.map((s) => `- ${s}`).join("\n")}\n\n` +
-      `建议：\n${r.suggestion.map((s) => `- ${s}`).join("\n")}`;
-    yield* this.chunk(text, 24);
+    yield* this.chunk(JSON.stringify(r), 24);
   }
 
   // Offline: cannot judge a real prediction, so return null → caller skips.

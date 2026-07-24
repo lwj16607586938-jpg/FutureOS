@@ -85,6 +85,9 @@ model Mission {
   userId      String
   user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   theme       String
+  nodeId      String?
+  node        KnowledgeNode? @relation(fields: [nodeId], references: [id])
+  tier        Int           @default(1) // 1-based tier within the node's module (L1..Lk)
   status      MissionStatus @default(CREATED)
   stage       MissionStage  @default(CREATED)
   date        String                       // YYYY-MM-DD, daily uniqueness
@@ -154,6 +157,7 @@ model Review {
   strength  String   // JSON array text (doc 11 §10 strength[])
   weakness  String   // JSON array text (doc 11 §10 weakness[])
   suggestion String  // JSON array text (doc 11 §10 suggestion[])
+  questionReviews Json?   // per-question review: verdict/diagnosis/correctAnswer/explanation (req3/4)
   createdAt DateTime @default(now())
 }
 
@@ -201,6 +205,7 @@ model KnowledgeNode {
   sourceEdges KnowledgeEdge[] @relation("EdgeSource")
   targetEdges KnowledgeEdge[] @relation("EdgeTarget")
   progress    KnowledgeProgress[]
+  missions    Mission[]
 
   @@index([slug])
 }

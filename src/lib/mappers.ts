@@ -5,6 +5,7 @@ import type {
   ReviewView,
   AbilityScores,
   QuestionView,
+  QuestionReviewItem,
 } from "./types";
 
 function parseList(json: string | null): string[] {
@@ -15,6 +16,32 @@ function parseList(json: string | null): string[] {
   } catch {
     return json ? [json] : [];
   }
+}
+
+function parseQuestionReviews(review: Review | null | undefined): QuestionReviewItem[] {
+  const raw = review?.questionReviews as unknown;
+  if (raw == null) return [];
+  let arr: any[] = [];
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      arr = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      arr = [];
+    }
+  } else if (Array.isArray(raw)) {
+    arr = raw as any[];
+  }
+  return arr.slice(0, 3).map((q: any) => ({
+    order: Number(q?.order) || 0,
+    type: (["EXPLAIN", "REASON", "CONNECT"].includes(q?.type) ? q.type : "EXPLAIN") as QuestionReviewItem["type"],
+    question: String(q?.question ?? ""),
+    userAnswer: q?.userAnswer != null ? String(q.userAnswer) : null,
+    verdict: (["correct", "partial", "wrong"].includes(q?.verdict) ? q.verdict : "wrong") as QuestionReviewItem["verdict"],
+    diagnosis: String(q?.diagnosis ?? ""),
+    correctAnswer: String(q?.correctAnswer ?? ""),
+    explanation: String(q?.explanation ?? ""),
+  }));
 }
 
 export function toQuestionViews(mission: Mission & { questions?: { order: number; type: string; content: string; answer: string | null }[] }): QuestionView[] {
@@ -68,8 +95,10 @@ export function toMissionView(
     questions?: { order: number; type: string; content: string; answer: string | null }[];
     prediction?: Prediction | null;
     review?: Review | null;
+    node?: { id: string; difficulty: number } | null;
   }
 ): MissionView {
+  const tierCount = m.node ? Math.min(Math.max(m.node.difficulty, 1), 5) : m.tier ?? 1;
   return {
     missionId: m.id,
     theme: m.theme,
@@ -78,11 +107,14 @@ export function toMissionView(
     date: m.date,
     startedAt: m.startedAt ? m.startedAt.toISOString() : null,
     completedAt: m.completedAt ? m.completedAt.toISOString() : null,
+    tier: m.tier ?? 1,
+    tierCount,
     learning: m.learning
       ? { title: m.learning.title, content: m.learning.content, estimatedMinutes: m.learning.estimatedMinutes }
       : null,
     questions: toQuestionViews(m),
     prediction: m.prediction ? toPredictionView(m.prediction) : null,
     review: toReviewView(m.review ?? null),
+    questionReviews: parseQuestionReviews(m.review),
   };
 }

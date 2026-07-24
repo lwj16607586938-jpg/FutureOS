@@ -100,3 +100,62 @@ body {
 .fos-fade-in {
   animation: fos-fade-in 200ms ease-out;
 }
+
+/* req1: structured Markdown reading material — clear hierarchy, spacing,
+   emphasized key terms, lists. Uses the app's CSS variables so it adapts to
+   the active theme (light/dark). */
+.prose-reading {
+  font-size: 15px;
+  line-height: 1.85;
+  color: hsl(var(--foreground));
+}
+.prose-reading h2 {
+  margin-top: 1.4em;
+  margin-bottom: 0.5em;
+  padding-left: 0.6rem;
+  border-left: 3px solid hsl(var(--primary));
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+}
+.prose-reading h3 {
+  margin-top: 1.1em;
+  margin-bottom: 0.4em;
+  font-size: 1.02rem;
+  font-weight: 600;
+}
+.prose-reading p {
+  margin: 0.7em 0;
+}
+.prose-reading strong {
+  color: hsl(var(--primary));
+  font-weight: 700;
+  background: hsl(var(--primary) / 0.08);
+  padding: 0 0.25rem;
+  border-radius: 4px;
+}
+.prose-reading ul,
+.prose-reading ol {
+  margin: 0.7em 0;
+  padding-left: 1.4em;
+}
+.prose-reading li {
+  margin: 0.35em 0;
+}
+.prose-reading ul li::marker {
+  color: hsl(var(--primary));
+}
+.prose-reading blockquote {
+  margin: 0.9em 0;
+  padding: 0.4em 0.9em;
+  border-left: 3px solid hsl(var(--muted-foreground) / 0.4);
+  background: hsl(var(--muted) / 0.4);
+  color: hsl(var(--muted-foreground));
+  border-radius: 0 6px 6px 0;
+}
+.prose-reading code {
+  background: hsl(var(--muted) / 0.6);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.88em;
+}
