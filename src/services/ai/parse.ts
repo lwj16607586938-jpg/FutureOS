@@ -1,8 +1,10 @@
 import type {
   MissionAIOutput,
   ReviewAIOutput,
+  DrillAIOutput,
   PredictionAssistanceOutput,
   QuestionReviewItem,
+  DrillQuestion,
 } from "@/lib/types";
 import type { VerificationOutput } from "./types";
 
@@ -20,6 +22,48 @@ export function firstJson(raw: string): string {
   }
   const end = raw.lastIndexOf("}");
   return raw.slice(start, end + 1);
+}
+
+// Tolerant JSON parse with light repair. The real model occasionally emits
+// slightly-malformed JSON (truncated by max_tokens, stray trailing commas, or an
+// unclosed bracket). Rather than silently falling back to Mock, we attempt to
+// repair the most common issues so a fully-usable parse survives. Throws only if
+// repair still fails (caller then falls back as before).
+export function safeParseJson(raw: string): any {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // fall through to repair
+  }
+  // 1) strip trailing commas before } or ]
+  let s = raw.replace(/,(\s*[}\]])/g, "$1");
+  // 2) balance unclosed brackets (handles mid-stream truncation)
+  const closeStack: string[] = [];
+  const openToClose: Record<string, string> = { "{": "}", "[": "]" };
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (esc) {
+      esc = false;
+      continue;
+    }
+    if (ch === "\\") {
+      esc = true;
+      continue;
+    }
+    if (ch === '"') {
+      inStr = !inStr;
+      continue;
+    }
+    if (inStr) continue;
+    if (ch === "{" || ch === "[") closeStack.push(openToClose[ch]);
+    else if (ch === "}" || ch === "]") {
+      if (closeStack.length) closeStack.pop();
+    }
+  }
+  while (closeStack.length) s += closeStack.pop();
+  return JSON.parse(s);
 }
 
 export function asStringArray(v: unknown): string[] {
@@ -50,7 +94,7 @@ function extractQuestionContent(q: any): string {
 }
 
 export function parseMission(raw: string): MissionAIOutput {
-  const o = JSON.parse(firstJson(raw));
+  const o = safeParseJson(firstJson(raw));
   const theme = String(o.theme ?? "");
   const questions = Array.isArray(o.questions)
     ? o.questions.slice(0, 3).map((q: any, i: number) => {
@@ -73,7 +117,7 @@ export function parseMission(raw: string): MissionAIOutput {
 }
 
 export function parseReview(raw: string): ReviewAIOutput {
-  const o = JSON.parse(firstJson(raw));
+  const o = safeParseJson(firstJson(raw));
   const questionReviews: QuestionReviewItem[] = Array.isArray(o.questionReviews)
     ? o.questionReviews.slice(0, 3).map((q: any) => ({
         order: Number(q?.order) || 0,
@@ -95,8 +139,30 @@ export function parseReview(raw: string): ReviewAIOutput {
   };
 }
 
+export function parseDrill(raw: string): DrillAIOutput {
+  const o = safeParseJson(firstJson(raw));
+  const questions: DrillQuestion[] = Array.isArray(o.questions)
+    ? o.questions.map((q: any, i: number) => {
+        const type = q?.type === "TF" ? "TF" : "MCQ";
+        const options = Array.isArray(q?.options) ? q.options.map(String) : undefined;
+        const correctAnswer = String(q?.correctAnswer ?? "").trim();
+        return {
+          id: String(q?.id ?? `dq-${i + 1}`),
+          type,
+          question: String(q?.question ?? ""),
+          options: type === "MCQ" ? (options && options.length >= 2 ? options : ["A. 选项 A", "B. 选项 B", "C. 选项 C", "D. 选项 D"]) : undefined,
+          correctAnswer: type === "TF" ? (correctAnswer === "false" ? "false" : "true") : correctAnswer,
+          explanation: String(q?.explanation ?? ""),
+          userAnswer: null,
+          isCorrect: null,
+        };
+      })
+    : [];
+  return { questions: questions.slice(0, 4) };
+}
+
 export function parseAssistance(raw: string): PredictionAssistanceOutput {
-  const o = JSON.parse(firstJson(raw));
+  const o = safeParseJson(firstJson(raw));
   return {
     historyNotes: asStringArray(o.historyNotes),
     riskHints: asStringArray(o.riskHints),
@@ -104,7 +170,7 @@ export function parseAssistance(raw: string): PredictionAssistanceOutput {
 }
 
 export function parseStringArray(raw: string): string[] {
-  const v = JSON.parse(firstJson(raw));
+  const v = safeParseJson(firstJson(raw));
   return Array.isArray(v) ? v.map(String) : asStringArray(v);
 }
 

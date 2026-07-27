@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiSend, streamPost } from "@/lib/fetcher";
 import { Button, Card, CardTitle, Badge, Textarea, Input, Skeleton, EmptyState } from "@/components/ui";
-import type { MissionView, QuestionView, QuestionReviewItem } from "@/lib/types";
+import type { MissionView, QuestionView, QuestionReviewItem, DrillQuestion } from "@/lib/types";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -96,6 +96,10 @@ export default function TodayPage() {
 
   if (m.status === "COMPLETED") {
     return <CompletedView mission={m} onAgain={handleStart} />;
+  }
+
+  if (m.stage === "DRILL") {
+    return <DrillView mission={m} onChange={refetch} />;
   }
 
   if (m.stage === "CREATED" || m.stage === "STARTED") {
@@ -392,37 +396,203 @@ function QuestionReviewCard({ item }: { item: QuestionReviewItem }) {
     wrong: { label: "答错", tone: "error" as const },
   }[item.verdict];
   return (
-    <div className="rounded-lg border border-border p-3">
-      <div className="flex items-center gap-2">
+    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2">
         <Badge tone="neutral">{item.type}</Badge>
         <span className="text-sm font-medium text-foreground">第 {item.order} 题</span>
         <Badge tone={verdictMeta.tone}>{verdictMeta.label}</Badge>
       </div>
-      <p className="mt-2 text-sm leading-7 text-foreground">{item.question}</p>
+      <p className="mt-3 text-[15px] font-medium leading-7 text-foreground">{item.question}</p>
 
-      <div className="mt-2 text-xs text-muted-foreground">
-        你的答案：
-        <span className="text-foreground">
+      <div className="mt-3 rounded-lg bg-muted/60 p-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">你的答案</p>
+        <p className="mt-1 text-sm leading-6 text-foreground">
           {item.userAnswer && item.userAnswer.trim() ? item.userAnswer : "（未作答）"}
-        </span>
+        </p>
       </div>
 
       {item.verdict !== "correct" && item.diagnosis && (
-        <div className="mt-2 rounded-md bg-error/10 p-2 text-sm leading-6 text-error">
+        <div className="mt-3 rounded-lg border-l-4 border-error bg-error/10 p-3 text-sm leading-6 text-error">
           <span className="font-semibold">错在哪里：</span>
           {item.diagnosis}
         </div>
       )}
 
-      <div className="mt-2 rounded-md bg-success/10 p-2 text-sm leading-6 text-success">
-        <span className="font-semibold">参考答案：</span>
-        {item.correctAnswer}
+      <div className="mt-3 rounded-lg border-l-4 border-primary bg-background p-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">参考答案</p>
+        <div className="prose-reading mt-1 text-sm leading-6 text-foreground">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.correctAnswer || "（暂无参考答案）"}</ReactMarkdown>
+        </div>
       </div>
 
-      <div className="mt-2 text-sm leading-7 text-foreground">
-        <span className="font-semibold text-muted-foreground">讲解：</span>
-        {item.explanation}
+      <div className="mt-3 rounded-lg border border-border bg-muted/30 p-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">讲解</p>
+        <div className="prose-reading mt-1 text-sm leading-6 text-foreground">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.explanation || "暂无讲解。"}</ReactMarkdown>
+        </div>
       </div>
+    </div>
+  );
+}
+
+function DrillView({ mission, onChange }: { mission: MissionView; onChange: () => void }) {
+  const [answers, setAnswers] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    mission.drillQuestions.forEach((q) => {
+      if (q.userAnswer) init[q.id] = q.userAnswer;
+    });
+    return init;
+  });
+  const submit = useMutation({
+    mutationFn: (b: { missionId: string; answers: { questionId: string; answer: string }[] }) =>
+      apiSend("/api/mission/drill", "POST", b),
+    onSuccess: onChange,
+  });
+
+  const questions = mission.drillQuestions;
+  const allAnswered = questions.length > 0 && questions.every((q) => answers[q.id]?.trim());
+  const hasSubmitted = questions.some((q) => q.isCorrect != null);
+
+  const handleSubmit = () => {
+    submit.mutate({
+      missionId: mission.missionId,
+      answers: questions.map((q) => ({ questionId: q.id, answer: answers[q.id] || "" })),
+    });
+  };
+
+  return (
+    <div className="reading-col mx-auto space-y-4">
+      <Card className="fos-fade-in border-warning/40">
+        <div className="flex items-center gap-2">
+          <Badge tone="warning">需要再练练</Badge>
+          <span className="text-sm text-muted-foreground">{mission.date}</span>
+        </div>
+        <CardTitle className="mt-2">先吃透「{mission.theme}」，再完成本场</CardTitle>
+        <p className="mt-1 text-sm text-muted-foreground">
+          下面是你刚才的复盘，以及针对薄弱点的选择题/判断题。全部答对即可通关。
+        </p>
+      </Card>
+
+      {mission.review && (
+        <Card>
+          <CardTitle>AI 复盘</CardTitle>
+          <p className="mt-2 text-sm leading-7 text-foreground">{mission.review.summary}</p>
+          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+            <ReviewCol title="优势" items={mission.review.strength} tone="success" />
+            <ReviewCol title="待加强" items={mission.review.weakness} tone="warning" />
+            <ReviewCol title="建议" items={mission.review.suggestion} tone="primary" />
+          </div>
+        </Card>
+      )}
+
+      {mission.questionReviews.length > 0 && (
+        <Card>
+          <CardTitle>逐题讲评</CardTitle>
+          <div className="mt-3 space-y-4">
+            {mission.questionReviews.map((qr) => (
+              <QuestionReviewCard key={qr.order} item={qr} />
+            ))}
+          </div>
+        </Card>
+      )}
+
+      <Card className="fos-fade-in border-primary/30">
+        <CardTitle>追问练习</CardTitle>
+        <p className="mt-1 text-sm text-muted-foreground">每道题只有一个最佳选项，答错会显示解析，请修改后继续。</p>
+        <div className="mt-4 space-y-5">
+          {questions.map((q, idx) => (
+            <DrillQuestionCard
+              key={q.id}
+              index={idx + 1}
+              q={q}
+              value={answers[q.id] || ""}
+              onSelect={(v) => setAnswers((prev) => ({ ...prev, [q.id]: v }))}
+            />
+          ))}
+        </div>
+        <div className="mt-5 flex items-center gap-3">
+          <Button onClick={handleSubmit} disabled={!allAnswered || submit.isPending}>
+            {submit.isPending ? "提交中…" : hasSubmitted ? "继续追问" : "提交答案"}
+          </Button>
+          {!allAnswered && <span className="text-xs text-muted-foreground">请先答完所有题目</span>}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function DrillQuestionCard({
+  index,
+  q,
+  value,
+  onSelect,
+}: {
+  index: number;
+  q: DrillQuestion;
+  value: string;
+  onSelect: (v: string) => void;
+}) {
+  const isLocked = q.isCorrect === true;
+  const showError = q.isCorrect === false;
+  return (
+    <div className={`rounded-xl border p-4 ${showError ? "border-error bg-error/5" : "border-border bg-card"}`}>
+      <div className="flex items-center gap-2">
+        <Badge tone={isLocked ? "success" : showError ? "error" : "primary"}>Q{index}</Badge>
+        <span className="text-sm font-medium text-foreground">{q.question}</span>
+      </div>
+      {q.type === "MCQ" && q.options && (
+        <div className="mt-3 space-y-2">
+          {q.options.map((opt) => {
+            const letter = opt.trim().charAt(0);
+            const selected = value.toUpperCase() === letter.toUpperCase();
+            return (
+              <label
+                key={opt}
+                className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
+                  selected ? "border-primary bg-primary/10" : "border-border bg-background hover:bg-muted/50"
+                } ${isLocked ? "cursor-not-allowed opacity-70" : ""}`}
+              >
+                <input
+                  type="radio"
+                  name={q.id}
+                  value={letter}
+                  checked={selected}
+                  disabled={isLocked}
+                  onChange={() => onSelect(letter)}
+                  className="mt-1"
+                />
+                <span className="text-sm leading-6 text-foreground">{opt}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+      {q.type === "TF" && (
+        <div className="mt-3 flex gap-3">
+          {[
+            { label: "正确", v: "true" },
+            { label: "错误", v: "false" },
+          ].map(({ label, v }) => {
+            const selected = value.toLowerCase() === v;
+            return (
+              <Button
+                key={v}
+                variant={selected ? "primary" : "outline"}
+                disabled={isLocked}
+                onClick={() => onSelect(v)}
+              >
+                {label}
+              </Button>
+            );
+          })}
+        </div>
+      )}
+      {showError && q.explanation && (
+        <div className="mt-3 text-sm leading-6 text-error">
+          <span className="font-semibold">解析：</span>
+          {q.explanation}
+        </div>
+      )}
     </div>
   );
 }

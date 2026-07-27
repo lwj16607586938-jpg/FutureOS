@@ -23,3 +23,13 @@ export const verifyInputSchema = z.object({
   status: z.enum(["VERIFIED", "FAILED"]),
   result: z.string().max(2000).nullable().optional(),
 });
+
+export const drillAnswerInputSchema = z.object({
+  missionId: z.string().min(1),
+  answers: z.array(
+    z.object({
+      questionId: z.string().min(1),
+      answer: z.string().min(1),
+    })
+  ),
+});

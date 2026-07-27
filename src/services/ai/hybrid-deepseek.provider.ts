@@ -3,9 +3,10 @@ import type { AIProvider, AIContext, VerificationOutput } from "./types";
 import type {
   MissionAIOutput,
   ReviewAIOutput,
+  DrillAIOutput,
   PredictionAssistanceOutput,
 } from "@/lib/types";
-import { buildMissionPrompt, buildReviewPrompt } from "@/prompts";
+import { buildMissionPrompt, buildReviewPrompt, buildDrillPrompt } from "@/prompts";
 
 // HybridDeepSeekProvider — the "smart AND fast" strategy (user decision 2026-07-17):
 //   • Generation (Mission + 3 questions + suggestions) → flash  (deepseek-v4-flash)
@@ -50,6 +51,9 @@ export class HybridDeepSeekProvider implements AIProvider {
   }
   generateReview(ctx: AIContext): Promise<ReviewAIOutput> {
     return this.pro.generateReview(ctx);
+  }
+  generateDrill(ctx: AIContext): Promise<DrillAIOutput> {
+    return this.pro.generateDrill(ctx);
   }
   generateSuggestion(ctx: AIContext): Promise<string[]> {
     return this.flash.generateSuggestion(ctx);

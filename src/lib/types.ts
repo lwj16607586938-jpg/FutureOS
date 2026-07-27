@@ -24,6 +24,11 @@ export interface ReviewAIOutput {
   questionReviews?: QuestionReviewItem[];
 }
 
+// AI output for the mastery drill (follow-up MCQ/TF questions).
+export interface DrillAIOutput {
+  questions: DrillQuestion[];
+}
+
 // Per-question coaching review (req3/req4).
 export interface QuestionReviewItem {
   order: number;
@@ -80,7 +85,7 @@ export interface MissionView {
   missionId: string;
   theme: string;
   status: "CREATED" | "STARTED" | "COMPLETED";
-  stage: "CREATED" | "STARTED" | "LEARNING" | "THINKING" | "PREDICTION" | "REVIEW" | "COMPLETED";
+  stage: "CREATED" | "STARTED" | "LEARNING" | "THINKING" | "PREDICTION" | "REVIEW" | "DRILL" | "COMPLETED";
   date: string;
   startedAt: string | null;
   completedAt: string | null;
@@ -91,6 +96,19 @@ export interface MissionView {
   prediction: PredictionView | null;
   review: ReviewView | null;
   questionReviews: QuestionReviewItem[]; // per-question coaching (req3/req4)
+  drillQuestions: DrillQuestion[]; // 追问（选择题/判断题），stage=DRILL 时出现
+}
+
+// Drill / mastery loop questions (MCQ or true/false).
+export interface DrillQuestion {
+  id: string;
+  type: "MCQ" | "TF";
+  question: string;
+  options?: string[]; // for MCQ: A/B/C/D labels as strings like "A. xxx"
+  correctAnswer: string; // for MCQ: the letter/label; for TF: "true" | "false"
+  explanation: string; // shown after answering
+  userAnswer?: string | null;
+  isCorrect?: boolean | null;
 }
 
 export interface AbilityScores {

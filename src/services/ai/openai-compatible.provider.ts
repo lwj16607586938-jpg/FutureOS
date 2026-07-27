@@ -2,12 +2,14 @@ import type { AIProvider, AIContext, VerificationOutput } from "./types";
 import type {
   MissionAIOutput,
   ReviewAIOutput,
+  DrillAIOutput,
   PredictionAssistanceOutput,
 } from "@/lib/types";
 import { AI_MAX_RETRIES } from "@/lib/constants";
 import {
   buildMissionPrompt,
   buildReviewPrompt,
+  buildDrillPrompt,
   buildPredictionAssistancePrompt,
   buildSuggestionPrompt,
   buildPredictionVerifyPrompt,
@@ -16,6 +18,7 @@ import { MockProvider } from "./mock.provider";
 import {
   parseMission,
   parseReview,
+  parseDrill,
   parseAssistance,
   parseStringArray,
   parseVerify,
@@ -60,8 +63,15 @@ export class OpenAICompatibleProvider implements AIProvider {
 
   async generateReview(ctx: AIContext): Promise<ReviewAIOutput> {
     return this.tryOrFallback(
-      () => this.chat(buildReviewPrompt(ctx)).then(parseReview),
+      () => this.chat(buildReviewPrompt(ctx), 4096).then(parseReview),
       () => this.fallback.generateReview(ctx)
+    );
+  }
+
+  async generateDrill(ctx: AIContext): Promise<DrillAIOutput> {
+    return this.tryOrFallback(
+      () => this.chat(buildDrillPrompt(ctx), 4096).then(parseDrill),
+      () => this.fallback.generateDrill(ctx)
     );
   }
 
@@ -100,7 +110,7 @@ export class OpenAICompatibleProvider implements AIProvider {
   }
 
   // Public streaming primitive used by the hybrid provider's routed models.
-  async *streamChat(prompt: string): AsyncGenerator<string> {
+  async *streamChat(prompt: string, maxTokens = 4096): AsyncGenerator<string> {
     const baseUrl = this.cfg.baseUrl.replace(/\/+$/, "");
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), this.cfg.timeoutMs);
@@ -115,7 +125,7 @@ export class OpenAICompatibleProvider implements AIProvider {
           model: this.cfg.model,
           messages: [{ role: "user", content: prompt }],
           temperature: 0.4,
-          max_tokens: 1500,
+          max_tokens: maxTokens,
           stream: true,
         }),
         signal: ctrl.signal,
@@ -168,7 +178,7 @@ export class OpenAICompatibleProvider implements AIProvider {
     }
   }
 
-  private async chat(prompt: string): Promise<string> {
+  private async chat(prompt: string, maxTokens = 4096): Promise<string> {
     const baseUrl = this.cfg.baseUrl.replace(/\/+$/, "");
     let lastErr: unknown;
     for (let i = 0; i < AI_MAX_RETRIES; i++) {
@@ -189,8 +199,12 @@ export class OpenAICompatibleProvider implements AIProvider {
             // short) ceiling from truncating long outputs (e.g. 3 questions
             // plus a full learning passage) — which previously left question
             // content empty (2026-07-17 DeepSeek run).
+            // 2026-07-27: raised default to 4096 — a full Review/Drill JSON
+            // (3 questionReviews, each with correctAnswer+explanation+diagnosis)
+            // exceeds 1500 tokens and was being truncated → invalid JSON →
+            // silent Mock fallback. Review/Drill now pass 4096 explicitly.
             temperature: 0.4,
-            max_tokens: 1500,
+            max_tokens: maxTokens,
           }),
           signal: ctrl.signal,
         });

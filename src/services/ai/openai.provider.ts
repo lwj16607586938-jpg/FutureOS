@@ -3,12 +3,14 @@ import type { AIProvider, AIContext, VerificationOutput } from "./types";
 import type {
   MissionAIOutput,
   ReviewAIOutput,
+  DrillAIOutput,
   PredictionAssistanceOutput,
 } from "@/lib/types";
 import { AI_MAX_RETRIES, AI_TIMEOUT_MS } from "@/lib/constants";
 import {
   buildMissionPrompt,
   buildReviewPrompt,
+  buildDrillPrompt,
   buildPredictionAssistancePrompt,
   buildSuggestionPrompt,
 } from "@/prompts";
@@ -16,6 +18,7 @@ import { MockProvider } from "./mock.provider";
 import {
   parseMission,
   parseReview,
+  parseDrill,
   parseAssistance,
   parseStringArray,
 } from "./parse";
@@ -49,6 +52,12 @@ export class OpenAIResponsesProvider implements AIProvider {
     return this.withFallback(() =>
       this.respond(buildReviewPrompt(ctx), parseReview)
     , () => this.fallback.generateReview(ctx));
+  }
+
+  async generateDrill(ctx: AIContext): Promise<DrillAIOutput> {
+    return this.withFallback(() =>
+      this.respond(buildDrillPrompt(ctx), parseDrill)
+    , () => this.fallback.generateDrill(ctx));
   }
 
   async generateSuggestion(ctx: AIContext): Promise<string[]> {

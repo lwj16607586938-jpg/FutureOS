@@ -7,7 +7,7 @@ import { statsRepository, recomputeStreak } from "@/repositories/stats.repositor
 import { conceptService } from "@/services/concept/concept.service";
 import { getAIProvider, buildContext } from "@/services/ai";
 import { parseMission, parseReview } from "@/services/ai/parse";
-import { toMissionView } from "@/lib/mappers";
+import { toMissionView, parseQuestionReviews, parseDrillQuestions } from "@/lib/mappers";
 import { appendLearningEntry } from "@/lib/backup";
 import {
   evidenceToDeltas,
@@ -16,7 +16,7 @@ import {
 import { QUESTION_DIMENSION, ABILITY_DIMENSIONS } from "@/lib/constants";
 import type { AbilityDimensionKey } from "@/lib/constants";
 import { NotFoundError, BusinessError, ValidationError } from "@/lib/errors";
-import type { MissionView, PredictionView, MissionAIOutput, ReviewAIOutput } from "@/lib/types";
+import type { MissionView, PredictionView, MissionAIOutput, ReviewAIOutput, DrillAIOutput, DrillQuestion } from "@/lib/types";
 
 const STAGE_ORDER = [
   "CREATED",
@@ -219,96 +219,56 @@ export const missionService = {
     });
     const review = preReview ?? (await getAIProvider().generateReview(ctx));
 
-    const answeredDims = answered.map((q) => QUESTION_DIMENSION[q.type as keyof typeof QUESTION_DIMENSION]) as AbilityDimensionKey[];
-    const streakBefore = await recomputeStreak(userId);
-    const deltas = evidenceToDeltas({ answeredDims, hasPrediction: !!m.prediction, consecutiveGood: streakBefore >= 2 });
-
-    const completed = await prisma.$transaction(async (tx) => {
-      // 1) Ability update + history
-      const ab = await tx.ability.findFirstOrThrow({ where: { userId } });
-      const next: Record<string, number> = {};
-      const history: { dimension: any; before: number; after: number }[] = [];
-      for (const dim of ABILITY_DIMENSIONS) {
-        const d = deltas[dim] ?? 0;
-        if (d === 0) continue;
-        const before = (ab as any)[dim] as number;
-        const after = Math.max(0, Math.min(100, before + d));
-        next[dim] = after;
-        if (after !== before) history.push({ dimension: dim.toUpperCase() as any, before, after });
-      }
-      if (Object.keys(next).length > 0) {
-        await tx.ability.update({ where: { id: ab.id }, data: next });
-        if (history.length > 0) {
-          await tx.abilityHistory.createMany({
-            data: history.map((h) => ({
-              abilityId: ab.id,
-              dimension: h.dimension,
-              before: h.before,
-              after: h.after,
-              reason: "mission-complete",
-              missionId,
-            })),
-          });
-        }
-      }
-      // 2) Review upsert
-      await tx.review.upsert({
-        where: { missionId },
-        create: {
-          missionId,
-          summary: review.summary,
-          strength: JSON.stringify(review.strength),
-          weakness: JSON.stringify(review.weakness),
-          suggestion: JSON.stringify(review.suggestion),
-          questionReviews: JSON.stringify(review.questionReviews ?? []),
-        },
-        update: {
-          summary: review.summary,
-          strength: JSON.stringify(review.strength),
-          weakness: JSON.stringify(review.weakness),
-          suggestion: JSON.stringify(review.suggestion),
-          questionReviews: JSON.stringify(review.questionReviews ?? []),
-        },
-      });
-      // 3) Mark knowledge learned
-      const node = await tx.knowledgeNode.findFirst({ where: { title: m.theme } });
-      if (node) {
-        await tx.knowledgeProgress.upsert({
-          where: { userId_knowledgeNodeId: { userId, knowledgeNodeId: node.id } },
-          create: { userId, knowledgeNodeId: node.id, status: "LEARNED", completedMissionId: missionId },
-          update: { status: "LEARNED", completedMissionId: missionId },
-        });
-      }
-      // 4) Mission complete
-      await tx.mission.update({
-        where: { id: missionId },
-        data: { status: "COMPLETED", stage: "COMPLETED", completedAt: new Date() },
-      });
-      return missionId;
+    // Persist review first (so the user can see feedback even if drill follows).
+    await prisma.review.upsert({
+      where: { missionId },
+      create: {
+        missionId,
+        summary: review.summary,
+        strength: JSON.stringify(review.strength),
+        weakness: JSON.stringify(review.weakness),
+        suggestion: JSON.stringify(review.suggestion),
+        questionReviews: JSON.stringify(review.questionReviews ?? []),
+      },
+      update: {
+        summary: review.summary,
+        strength: JSON.stringify(review.strength),
+        weakness: JSON.stringify(review.weakness),
+        suggestion: JSON.stringify(review.suggestion),
+        questionReviews: JSON.stringify(review.questionReviews ?? []),
+      },
     });
 
-    // 5) Recompute cached DailyStatistics (outside tx is fine; single-writer V1)
-    const missionCount = await prisma.mission.count({ where: { userId, status: "COMPLETED" } });
-    const predictionCount = await predictionRepository.countByUser(userId);
-    const knowledgeCount = await knowledgeRepository.countLearned(userId);
-    const streak = await recomputeStreak(userId);
-    const existing = await statsRepository.ensureForUser(userId);
-    await statsRepository.upsert(userId, {
-      missionCount,
-      predictionCount,
-      knowledgeCount,
-      currentStreak: streak,
-      longestStreak: Math.max(existing.longestStreak, streak),
-    });
+    // Mastery gate: if any answer is not fully correct, enter drill mode
+    // instead of completing. Generate MCQ/TF questions targeting weak points.
+    const hasWeak = (review.questionReviews ?? []).some((q) => q.verdict !== "correct");
+    if (hasWeak) {
+      const drillCtx = buildContext("DRILL", {
+        concept: { title: concept.title, description: concept.description, category: concept.category, difficulty: concept.difficulty },
+        ability: toAbilityScores(ability),
+        recentThemes: recentRows.map((r) => r.theme),
+        mission: {
+          theme: m.theme,
+          answers: (m.questions ?? []).map((q) => ({
+            order: q.order,
+            type: q.type,
+            question: q.content,
+            answer: q.answer,
+          })),
+          prediction: m.prediction
+            ? { content: m.prediction.content, confidence: m.prediction.confidence, targetDate: m.prediction.targetDate.toISOString() }
+            : null,
+          questionReviews: review.questionReviews ?? [],
+        },
+      });
+      const drill = await getAIProvider().generateDrill(drillCtx);
+      await missionRepository.setDrillQuestions(missionId, drill.questions as any[]);
+      const refreshed = await missionRepository.findById(missionId);
+      if (!refreshed) throw new NotFoundError("MISSION_NOT_FOUND", "Mission 不存在");
+      return toMissionView(refreshed);
+    }
 
-    const full = await missionRepository.findById(completed);
-    if (!full) throw new NotFoundError("MISSION_NOT_FOUND", "Mission 不存在");
-
-    // 用户内容完整保留：每次完成把全量快照追加进 append-only 成长记录。
-    // 即便数据库被重置，learning-log.jsonl 仍保留其全部回答/思考/预测。
-    await appendLearningEntry(userId, completed);
-
-    return toMissionView(full);
+    return finalizeMission(userId, missionId);
   },
 
   // Streaming variant of completeMission: yields review deltas for a live
@@ -368,6 +328,75 @@ export const missionService = {
     return this.completeMission(userId, missionId, review);
   },
 
+  async getOrCreateDrill(userId: string, missionId: string): Promise<DrillQuestion[]> {
+    const m = await missionRepository.findById(missionId);
+    if (!m || m.userId !== userId) throw new NotFoundError("MISSION_NOT_FOUND", "Mission 不存在");
+    if (m.stage !== "DRILL") throw new BusinessError("MISSION_COMPLETED", "当前不在追问阶段");
+    const existing = parseDrillQuestions(m.drillQuestions);
+    if (existing.length > 0) return existing;
+
+    const concept = (await conceptService.getConceptByTitle(m.theme)) ?? {
+      title: m.theme,
+      description: m.learning?.content ?? "",
+      category: null,
+      difficulty: 2,
+    };
+    const ability = await abilityRepository.getByUser(userId);
+    const recentRows = await prisma.mission.findMany({
+      where: { userId, status: "COMPLETED" },
+      select: { theme: true },
+      orderBy: { date: "desc" },
+      take: 5,
+    });
+    const reviewItems = parseQuestionReviews(m.review);
+    const ctx = buildContext("DRILL", {
+      concept: { title: concept.title, description: concept.description, category: concept.category, difficulty: concept.difficulty },
+      ability: toAbilityScores(ability),
+      recentThemes: recentRows.map((r) => r.theme),
+      mission: {
+        theme: m.theme,
+        answers: (m.questions ?? []).map((q) => ({ order: q.order, type: q.type, question: q.content, answer: q.answer })),
+        prediction: m.prediction
+          ? { content: m.prediction.content, confidence: m.prediction.confidence, targetDate: m.prediction.targetDate.toISOString() }
+          : null,
+        questionReviews: reviewItems,
+      },
+    });
+    const drill = await getAIProvider().generateDrill(ctx);
+    await missionRepository.setDrillQuestions(missionId, drill.questions as any[]);
+    return drill.questions;
+  },
+
+  async answerDrill(
+    userId: string,
+    missionId: string,
+    answers: { questionId: string; answer: string }[]
+  ): Promise<MissionView> {
+    const m = await missionRepository.findById(missionId);
+    if (!m || m.userId !== userId) throw new NotFoundError("MISSION_NOT_FOUND", "Mission 不存在");
+    if (m.stage !== "DRILL") throw new BusinessError("MISSION_COMPLETED", "当前不在追问阶段");
+
+    const drillQuestions = parseDrillQuestions(m.drillQuestions);
+    for (const a of answers) {
+      const q = drillQuestions.find((dq) => dq.id === a.questionId);
+      if (!q) continue;
+      const userAnswer = a.answer.trim();
+      const isCorrect = q.type === "TF"
+        ? userAnswer.toLowerCase() === q.correctAnswer.toLowerCase()
+        : userAnswer.toUpperCase() === q.correctAnswer.toUpperCase();
+      await missionRepository.submitDrillAnswer(missionId, a.questionId, userAnswer, isCorrect);
+    }
+
+    const refreshed = await missionRepository.findById(missionId);
+    if (!refreshed) throw new NotFoundError("MISSION_NOT_FOUND", "Mission 不存在");
+    const current = parseDrillQuestions(refreshed.drillQuestions);
+    const allAnswered = current.length > 0 && current.every((q) => q.isCorrect === true);
+    if (allAnswered) {
+      return finalizeMission(userId, missionId);
+    }
+    return toMissionView(refreshed);
+  },
+
   async requireEditable(userId: string, missionId: string) {
     const m = await missionRepository.findById(missionId);
     if (!m || m.userId !== userId) throw new NotFoundError("MISSION_NOT_FOUND", "Mission 不存在");
@@ -382,6 +411,79 @@ export const missionService = {
 function finalTierOf(m: { tier?: number | null; node?: { difficulty: number } | null }): boolean {
   const tierCount = m.node ? Math.min(Math.max(m.node.difficulty, 1), 5) : m.tier ?? 1;
   return (m.tier ?? 1) >= tierCount;
+}
+
+// Shared completion side-effects: ability update, knowledge progress, stats, backup.
+// Called both from completeMission (all correct, no drill needed) and answerDrill
+// (all drill questions answered correctly).
+async function finalizeMission(userId: string, missionId: string): Promise<MissionView> {
+  const m = await missionRepository.findById(missionId);
+  if (!m) throw new NotFoundError("MISSION_NOT_FOUND", "Mission 不存在");
+
+  const answered = (m.questions ?? []).filter((q) => q.answer && q.answer.trim());
+  const answeredDims = answered.map((q) => QUESTION_DIMENSION[q.type as keyof typeof QUESTION_DIMENSION]) as AbilityDimensionKey[];
+  const streakBefore = await recomputeStreak(userId);
+  const deltas = evidenceToDeltas({ answeredDims, hasPrediction: !!m.prediction, consecutiveGood: streakBefore >= 2 });
+
+  const completed = await prisma.$transaction(async (tx) => {
+    const ab = await tx.ability.findFirstOrThrow({ where: { userId } });
+    const next: Record<string, number> = {};
+    const history: { dimension: any; before: number; after: number }[] = [];
+    for (const dim of ABILITY_DIMENSIONS) {
+      const d = deltas[dim] ?? 0;
+      if (d === 0) continue;
+      const before = (ab as any)[dim] as number;
+      const after = Math.max(0, Math.min(100, before + d));
+      next[dim] = after;
+      if (after !== before) history.push({ dimension: dim.toUpperCase() as any, before, after });
+    }
+    if (Object.keys(next).length > 0) {
+      await tx.ability.update({ where: { id: ab.id }, data: next });
+      if (history.length > 0) {
+        await tx.abilityHistory.createMany({
+          data: history.map((h) => ({
+            abilityId: ab.id,
+            dimension: h.dimension,
+            before: h.before,
+            after: h.after,
+            reason: "mission-complete",
+            missionId,
+          })),
+        });
+      }
+    }
+    const node = await tx.knowledgeNode.findFirst({ where: { title: m.theme } });
+    if (node) {
+      await tx.knowledgeProgress.upsert({
+        where: { userId_knowledgeNodeId: { userId, knowledgeNodeId: node.id } },
+        create: { userId, knowledgeNodeId: node.id, status: "LEARNED", completedMissionId: missionId },
+        update: { status: "LEARNED", completedMissionId: missionId },
+      });
+    }
+    await tx.mission.update({
+      where: { id: missionId },
+      data: { status: "COMPLETED", stage: "COMPLETED", completedAt: new Date() },
+    });
+    return missionId;
+  });
+
+  const missionCount = await prisma.mission.count({ where: { userId, status: "COMPLETED" } });
+  const predictionCount = await predictionRepository.countByUser(userId);
+  const knowledgeCount = await knowledgeRepository.countLearned(userId);
+  const streak = await recomputeStreak(userId);
+  const existing = await statsRepository.ensureForUser(userId);
+  await statsRepository.upsert(userId, {
+    missionCount,
+    predictionCount,
+    knowledgeCount,
+    currentStreak: streak,
+    longestStreak: Math.max(existing.longestStreak, streak),
+  });
+
+  const full = await missionRepository.findById(completed);
+  if (!full) throw new NotFoundError("MISSION_NOT_FOUND", "Mission 不存在");
+  await appendLearningEntry(userId, completed);
+  return toMissionView(full);
 }
 
 function toPredictionViewLocal(p: import("@prisma/client").Prediction): PredictionView {

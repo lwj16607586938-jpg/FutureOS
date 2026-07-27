@@ -6,6 +6,7 @@ import type {
   AbilityScores,
   QuestionView,
   QuestionReviewItem,
+  DrillQuestion,
   ArchiveMission,
   ArchiveQuestion,
 } from "./types";
@@ -20,7 +21,37 @@ function parseList(json: string | null): string[] {
   }
 }
 
-function parseQuestionReviews(review: Review | null | undefined): QuestionReviewItem[] {
+export function parseDrillQuestions(raw: unknown): DrillQuestion[] {
+  if (raw == null) return [];
+  let arr: any[] = [];
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      arr = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      arr = [];
+    }
+  } else if (Array.isArray(raw)) {
+    arr = raw as any[];
+  }
+  return arr.map((q: any, i: number): DrillQuestion => {
+    const type = q?.type === "TF" ? "TF" : "MCQ";
+    const options = Array.isArray(q?.options) ? q.options.map(String) : undefined;
+    const correctAnswer = String(q?.correctAnswer ?? "").trim();
+    return {
+      id: String(q?.id ?? `dq-${i + 1}`),
+      type,
+      question: String(q?.question ?? ""),
+      options: type === "MCQ" ? options : undefined,
+      correctAnswer: type === "TF" ? (correctAnswer === "false" ? "false" : "true") : correctAnswer,
+      explanation: String(q?.explanation ?? ""),
+      userAnswer: q?.userAnswer != null ? String(q.userAnswer) : null,
+      isCorrect: q?.isCorrect === true ? true : q?.isCorrect === false ? false : null,
+    };
+  });
+}
+
+export function parseQuestionReviews(review: Review | null | undefined): QuestionReviewItem[] {
   const raw = review?.questionReviews as unknown;
   if (raw == null) return [];
   let arr: any[] = [];
@@ -118,6 +149,7 @@ export function toMissionView(
     prediction: m.prediction ? toPredictionView(m.prediction) : null,
     review: toReviewView(m.review ?? null),
     questionReviews: parseQuestionReviews(m.review),
+    drillQuestions: parseDrillQuestions((m as any).drillQuestions),
   };
 }
 

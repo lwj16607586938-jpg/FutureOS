@@ -53,11 +53,13 @@ export function buildReviewPrompt(ctx: AIContext): string {
   return [
     `【System】${SYSTEM_INSTRUCTION}`,
     `【Task】基于本次 Mission 的用户作答，生成复盘 Review。summary 一句总评；strength/weakness/suggestion 各 2-3 条（中文、可操作）。`,
-    `【逐题讲评 · 硬性要求】必须输出 questionReviews 数组，共 ${Math.max((m?.answers ?? []).length, 3)} 项，与题目顺序一一对应：`,
+    `【逐题讲评 · 硬性要求】必须输出 questionReviews 数组，共 ${Math.max((m?.answers ?? []).length, 3)} 项，每一项对应下面【Mission】中的一道题（按 order 与 Q1/Q2/Q3 一一对应）：`,
+    `  - order：题号（从 1 开始，与【Mission】中 Q1/Q2/Q3 对应）；question：原样抄录该题的问题文本；userAnswer：原样抄录用户答案；`,
     `  - verdict：correct（答到要点）/ partial（方向对但不完整或有小错）/ wrong（明显错误或空白）；`,
     `  - diagnosis（错在哪里）：若 verdict≠correct，必须直接引用用户答案中的具体错误原话并指出错处；严禁使用「答得不错」「有待加强」等模糊措辞；若 correct 则为空字符串；`,
-    `  - correctAnswer（参考答案）：给出该问题的标准/理想答案要点，必须具体；`,
+    `  - correctAnswer（参考答案）：【必须直接回答该题所问的具体问题】写一段完整、具体、可独立理解的标准答案，包含必要的概念、机制与例子。严禁写成答题模板或方法论——绝对禁止出现「回答时应…」「你可以从…」「建议先…」「围绕…展开」这类引导语，也禁止用「结合/参考/见上文」等回指。`,
     `  - explanation（讲解）：直接给出完整解析，自成一体、可直接理解；严禁出现「回看材料」「见上文」「结合阅读」「请参考前面」等回指，也不得要求用户自行查阅。`,
+    `【正面示例】correctAnswer 应类似：「GPT 的预训练是在大规模无标注文本上，用自回归/掩码语言建模目标让模型学习通用语言与世界的统计规律；它决定了模型后续微调能力的上限，算力与数据规模直接决定模型质量。」——而绝对不能是「应先说明它的定义，再讲训练目标，最后用例子验证」这种答题说明。`,
     `【Mission】主题「${m?.theme ?? ctx.concept.title}」。\n${answers}\n${pred}`,
     `【Ability】${abilityLine(ctx)}`,
     `【Output】严格返回 JSON，格式：{"summary":"","strength":[],"weakness":[],"suggestion":[],"questionReviews":[{"order":1,"type":"EXPLAIN","question":"","userAnswer":"","verdict":"correct","diagnosis":"","correctAnswer":"","explanation":""}]}`,
@@ -71,6 +73,27 @@ export function buildPredictionAssistancePrompt(ctx: AIContext): string {
     `【Mission】${knowledgeLine(ctx)}`,
     `【History】${historyLine(ctx)}`,
     `【Output】严格返回 JSON，格式：{"historyNotes":[],"riskHints":[]}`,
+  ].join("\n\n");
+}
+
+export function buildDrillPrompt(ctx: AIContext): string {
+  const m = ctx.mission;
+  const weakItems = (m?.questionReviews ?? [])
+    .filter((q) => q.verdict !== "correct")
+    .map((q) => `Q${q.order}[${q.type}] ${q.question}\n用户答案：${q.userAnswer || "（未作答）"}\n错因：${q.diagnosis || "不完整/有偏差"}\n原题讲解：${q.explanation}`)
+    .join("\n\n");
+  return [
+    `【System】${SYSTEM_INSTRUCTION}`,
+    `【Task】用户在本次 Mission 的 3 道思考题中有错误/遗漏，需要生成 2-4 道追问题目帮助其吃透概念。题目必须是「选择题（MCQ）」或「判断题（TF）」，每道题只考察一个薄弱点。`,
+    `【要求】`,
+    `  - 每道题都要给出明确答案（MCQ 用选项字母/标签如 "A" / "B" / "C" / "D"；TF 用 "true" 或 "false"）；`,
+    `  - 每个选项/判断都要附带 explanation，说明为什么对、为什么错；`,
+    `  - 干扰项要贴近用户真实错误，有针对性；`,
+    `  - 题目难度循序渐进，先补基础概念，再补推理应用。`,
+    `【薄弱点】\n${weakItems || "用户在本次思考题中存在理解或推理偏差。"}`,
+    `【概念资料】${knowledgeLine(ctx)}`,
+    `【Ability】${abilityLine(ctx)}`,
+    `【Output】严格返回 JSON，格式：{"questions":[{"id":"dq-1","type":"MCQ","question":"","options":["A. ...","B. ...","C. ...","D. ..."],"correctAnswer":"A","explanation":""},{"id":"dq-2","type":"TF","question":"","correctAnswer":"true","explanation":""}]}`,
   ].join("\n\n");
 }
 

@@ -20,6 +20,7 @@ enum MissionStage {
   THINKING
   PREDICTION
   REVIEW
+  DRILL
   COMPLETED
 }
 
@@ -99,6 +100,7 @@ model Mission {
   questions   Question[]
   prediction  Prediction?
   review      Review?
+  drillQuestions Json?     // 追问题库（选择题/判断题），见 DrillQuestion 类型
 
   // Burst mode (决策 2026-07-17): user may do MULTIPLE missions per day ("状态好时连做").
   // Removed the previous @@unique([userId, date]) one-mission-per-day constraint; the

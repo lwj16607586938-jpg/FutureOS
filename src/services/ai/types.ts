@@ -1,6 +1,7 @@
 import type {
   MissionAIOutput,
   ReviewAIOutput,
+  DrillAIOutput,
   PredictionAssistanceOutput,
   AbilityScores,
 } from "@/lib/types";
@@ -10,6 +11,7 @@ export type AITaskType =
   | "MISSION"
   | "QUESTION"
   | "REVIEW"
+  | "DRILL"
   | "SUGGESTION"
   | "PREDICTION_ASSISTANCE"
   | "PREDICTION_VERIFY";
@@ -25,6 +27,7 @@ export interface AIMissionInput {
   theme: string;
   answers: { order: number; type: string; question: string; answer: string | null }[];
   prediction: { content: string; confidence: number; targetDate: string } | null;
+  questionReviews?: { order: number; type: string; question: string; userAnswer: string | null; verdict: string; diagnosis: string; correctAnswer: string; explanation: string }[];
 }
 
 export interface AIPredictionInput {
@@ -57,6 +60,7 @@ export interface AIProvider {
   generateMission(ctx: AIContext): Promise<MissionAIOutput>;
   generateQuestions(ctx: AIContext): Promise<MissionAIOutput["questions"]>;
   generateReview(ctx: AIContext): Promise<ReviewAIOutput>;
+  generateDrill(ctx: AIContext): Promise<DrillAIOutput>;
   generateSuggestion(ctx: AIContext): Promise<string[]>;
   assistPrediction(ctx: AIContext): Promise<PredictionAssistanceOutput>;
   // Streaming variants for live "typewriter" UX (start / complete flows).

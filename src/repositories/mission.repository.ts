@@ -15,6 +15,7 @@ export type MissionWithRelations = Mission & {
   prediction: import("@prisma/client").Prediction | null;
   review: import("@prisma/client").Review | null;
   node: { id: string; difficulty: number } | null;
+  drillQuestions: unknown;
 };
 
 export const missionRepository = {
@@ -78,6 +79,28 @@ export const missionRepository = {
 
   async setStage(id: string, stage: MissionStage): Promise<void> {
     await prisma.mission.update({ where: { id }, data: { stage } });
+  },
+
+  async setDrillQuestions(id: string, questions: unknown[]): Promise<void> {
+    await prisma.mission.update({
+      where: { id },
+      data: { stage: "DRILL", drillQuestions: questions as any },
+    });
+  },
+
+  async submitDrillAnswer(id: string, questionId: string, userAnswer: string, isCorrect: boolean): Promise<void> {
+    const m = await prisma.mission.findUnique({ where: { id }, select: { drillQuestions: true } });
+    let arr: any[] = [];
+    const raw = m?.drillQuestions;
+    if (typeof raw === "string") {
+      try { arr = JSON.parse(raw); } catch { arr = []; }
+    } else if (Array.isArray(raw)) {
+      arr = raw as any[];
+    }
+    const next = arr.map((q: any) =>
+      String(q?.id) === questionId ? { ...q, userAnswer, isCorrect } : q
+    );
+    await prisma.mission.update({ where: { id }, data: { drillQuestions: next as any } });
   },
 
   // Persists an answer (idempotent). Stage transitions are owned by the service layer.

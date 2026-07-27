@@ -7,6 +7,7 @@ import type {
 import type {
   MissionAIOutput,
   ReviewAIOutput,
+  DrillAIOutput,
   PredictionAssistanceOutput,
   QuestionReviewItem,
 } from "@/lib/types";
@@ -86,15 +87,19 @@ export class MockProvider implements AIProvider {
         : userAnswer.length >= 12
           ? "correct"
           : "partial";
-      const correctAnswer = `围绕「${theme}」，应说明它的定义、它在产业链中的位置，以及它如何影响供需与景气。`;
+      const correctAnswer =
+        `**${theme}** 是产业链中连接「需求—供给—价格」的核心节点：它既代表一类具体的产业活动 / 资源 / 技术，也决定了上下游景气度如何传导。` +
+        `当 ${theme} 的需求上升而供给短期无法跟上时，相关价格与景气度趋于上行；反之则下行。` +
+        `判断 ${theme} 时，应同时看它的定义、它在链条中的位置，以及它会怎样改变上下游的需求、供给与价格，并用一个具体例子来验证。`;
       const diagnosis = !userAnswer
         ? `你未作答（或回答为空），缺少对「${a.question}」的关键推理。`
         : verdict === "partial"
           ? `你的回答方向对，但偏短、缺少「因为…所以…」的推理链条，未把「${theme}」与具体现象联系起来。`
           : "";
       const explanation =
-        `**解析**：「${theme}」的核心在于理解其定义与传导机制。${a.question} 要求你把它与具体现象联系起来——` +
-        `先给出定义，再说明它如何改变需求、供给或价格，最后举例验证。参考答案：${correctAnswer}`;
+        `**解析**：理解「${theme}」的关键有三点——(1) 它的定义是什么；(2) 它在产业链中处于什么位置、连接哪些上下游；` +
+        `(3) 当它的需求或供给变化时，会如何沿「需求—供给—价格」链条传导，改变相关价格与景气度。` +
+        `把这三点串成一条可验证的判断，就是该题的得分要点。`;
       return {
         order: i + 1,
         type: (["EXPLAIN", "REASON", "CONNECT"].includes(a.type) ? a.type : "EXPLAIN") as QuestionReviewItem["type"],
@@ -108,6 +113,36 @@ export class MockProvider implements AIProvider {
     });
 
     return { summary, strength, weakness, suggestion, questionReviews };
+  }
+
+  async generateDrill(ctx: AIContext): Promise<DrillAIOutput> {
+    const theme = ctx.mission?.theme ?? ctx.concept.title;
+    const weak = (ctx.mission?.questionReviews ?? []).filter((q) => q.verdict !== "correct");
+    const target = weak.length > 0 ? weak[0] : { question: `请判断关于「${theme}」的表述`, explanation: "" };
+    return {
+      questions: [
+        {
+          id: "dq-1",
+          type: "MCQ",
+          question: `关于「${theme}」的核心定义，以下哪项最准确？`,
+          options: [
+            `A. ${theme} 是产业链中独立存在、不影响上下游的静态标签。`,
+            `B. ${theme} 是与需求、供给、价格相互传导的动态机制。`,
+            `C. ${theme} 仅指它的字面含义，与产业分析无关。`,
+            `D. ${theme} 是一种不可验证的主观判断。`,
+          ],
+          correctAnswer: "B",
+          explanation: `正确答案是 B。${theme} 的真正价值在于它连接需求与供给，并通过价格/景气信号传导；A、C、D 都把它当成孤立或主观的概念，忽略了产业链位置。`,
+        },
+        {
+          id: "dq-2",
+          type: "TF",
+          question: `判断：当 ${theme} 的需求上升而供给短期刚性时，通常会推动相关价格或景气度上行。`,
+          correctAnswer: "true",
+          explanation: `正确。需求增加而供给短期无法跟上，会造成供不应求，价格与景气度趋于上行；这正是 ${theme} 影响产业链的核心路径。`,
+        },
+      ],
+    };
   }
 
   async generateSuggestion(ctx: AIContext): Promise<string[]> {
