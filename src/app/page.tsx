@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiSend, streamPost } from "@/lib/fetcher";
+import { todayStr } from "@/lib/utils";
 import { Button, Card, CardTitle, Badge, Textarea, Input, Skeleton, EmptyState } from "@/components/ui";
 import type { MissionView, QuestionView, QuestionReviewItem, DrillQuestion } from "@/lib/types";
 import { useState } from "react";
@@ -88,6 +89,11 @@ export default function TodayPage() {
 
   const m = data;
 
+  // 跨天续作：若这场任务还没完成、且创建日期不是今天，说明是「上次没做完的」。
+  const today = todayStr();
+  const isResuming = m.status !== "COMPLETED" && m.date && m.date !== today;
+  const resumeHint = isResuming ? `起始于 ${m.date}，你还没做完` : null;
+
   // Burst mode: while streaming a fresh mission, show the typewriter regardless
   // of the latest mission's status (which may still be COMPLETED from a prior round).
   if (stream?.phase === "mission") {
@@ -105,13 +111,14 @@ export default function TodayPage() {
   if (m.stage === "CREATED" || m.stage === "STARTED") {
     return (
       <div className="reading-col mx-auto">
+        {resumeHint && <ResumeBanner date={m.date} />}
         <Card className="fos-fade-in">
-          <CardTitle>今天的 Mission</CardTitle>
+          <CardTitle>{resumeHint ? "继续上次的 Mission" : "今天的 Mission"}</CardTitle>
           <p className="mt-2 text-sm text-muted-foreground">
             一次聚焦式认知训练：阅读一个概念，回答理解 / 推理 / 连接三类问题，做出一项预测，并获得 AI 复盘。状态好可连做多场。
           </p>
           <Button className="mt-4" size="lg" onClick={() => handleStart()}>
-            开始一场 Mission
+            {resumeHint ? "继续上次的练习 →" : "开始一场 Mission"}
           </Button>
         </Card>
       </div>
@@ -302,6 +309,21 @@ function ThinkingFlow({
   );
 }
 
+function ResumeBanner({ date }: { date: string }) {
+  return (
+    <div className="fos-fade-in mb-4 flex items-start gap-3 rounded-xl border-l-4 border-primary bg-primary/10 p-4">
+      <span className="text-lg">🔁</span>
+      <div>
+        <p className="text-sm font-semibold text-foreground">你有一场没做完的练习</p>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+          它起始于 <span className="font-medium text-foreground">{date}</span>。进度已自动保存，无需从头开始——
+          点「继续」就能接着往下做，做完才算完成。
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function CompletedView({ mission, onAgain }: { mission: MissionView; onAgain?: () => void }) {
   return (
     <div className="reading-col mx-auto space-y-4">
@@ -460,8 +482,10 @@ function DrillView({ mission, onChange }: { mission: MissionView; onChange: () =
     });
   };
 
+  const isResuming = !!mission.date && mission.date !== todayStr();
   return (
     <div className="reading-col mx-auto space-y-4">
+      {isResuming && <ResumeBanner date={mission.date} />}
       <Card className="fos-fade-in border-warning/40">
         <div className="flex items-center gap-2">
           <Badge tone="warning">需要再练练</Badge>
