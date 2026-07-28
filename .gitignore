@@ -48,3 +48,9 @@ next-env.d.ts
 prisma/*.db
 *.sqlite
 *.sqlite3
+
+# runtime logs (server / build / e2e output — not source)
+*.log
+server_*.log
+e2e_*.log
+build_run.log
