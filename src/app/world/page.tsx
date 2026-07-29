@@ -255,7 +255,7 @@ export default function WorldPage() {
                     <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">关联概念</p>
                     <div className="flex flex-wrap gap-1.5">
                       {detail.data.relatedNodes.map((r) => (
-                        <span key={r.id} className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
+                        <span key={`${r.id}-${r.relation}`} className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
                           <span className="h-2 w-2 rounded-full" style={{ background: RELATION_COLOR[r.relation] ?? "#94a3b8" }} />
                           {r.title}
                         </span>

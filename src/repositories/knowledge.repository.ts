@@ -21,10 +21,14 @@ export const knowledgeRepository = {
       where: { OR: [{ sourceNodeId: id }, { targetNodeId: id }] },
       include: { source: true, target: true },
     });
-    const related = edges.map((e) => {
+    const relatedMap = new Map<string, { id: string; title: string; relation: string }>();
+    for (const e of edges) {
       const other = e.sourceNodeId === id ? e.target : e.source;
-      return { id: other.id, title: other.title, relation: e.relation };
-    });
+      if (!relatedMap.has(other.id)) {
+        relatedMap.set(other.id, { id: other.id, title: other.title, relation: e.relation });
+      }
+    }
+    const related = [...relatedMap.values()];
     const progress = await prisma.knowledgeProgress.findUnique({
       where: { userId_knowledgeNodeId: { userId, knowledgeNodeId: id } },
     });
