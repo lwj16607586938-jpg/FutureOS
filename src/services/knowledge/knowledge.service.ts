@@ -7,6 +7,7 @@ import type { WorldView, NodeDetailView } from "@/lib/types";
 export const knowledgeService = {
   async getWorld(userId: string): Promise<WorldView> {
     const { nodes, edges } = await knowledgeRepository.getGraph();
+    const progressMap = await knowledgeRepository.getProgressMap(userId);
     return {
       nodes: nodes.map((n) => ({
         id: n.id,
@@ -14,6 +15,7 @@ export const knowledgeService = {
         slug: n.slug,
         category: n.category,
         difficulty: n.difficulty,
+        learningStatus: progressMap.get(n.id) ?? "UNKNOWN",
       })),
       edges: edges.map((e) => ({
         id: e.id,

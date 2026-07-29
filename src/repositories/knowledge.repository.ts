@@ -31,6 +31,13 @@ export const knowledgeRepository = {
     return { node, related, learningStatus: progress?.status ?? "UNKNOWN" };
   },
 
+  async getProgressMap(userId: string): Promise<Map<string, KnowledgeProgressStatus>> {
+    const rows = await prisma.knowledgeProgress.findMany({ where: { userId } });
+    const map = new Map<string, KnowledgeProgressStatus>();
+    for (const r of rows) map.set(r.knowledgeNodeId, r.status);
+    return map;
+  },
+
   async getProgress(userId: string, nodeId: string): Promise<KnowledgeProgress | null> {
     return prisma.knowledgeProgress.findUnique({
       where: { userId_knowledgeNodeId: { userId, knowledgeNodeId: nodeId } },

@@ -126,6 +126,7 @@ export interface WorldNodeView {
   slug: string;
   category: string | null;
   difficulty: number;
+  learningStatus: "UNKNOWN" | "LEARNING" | "LEARNED" | "MASTERED";
 }
 
 export interface WorldEdgeView {
